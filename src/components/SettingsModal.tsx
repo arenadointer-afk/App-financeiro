@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Settings, X, Camera, Shield, Download, Upload, LogOut, Key, Check, AlertCircle } from 'lucide-react';
+import { Settings, X, Camera, Shield, Download, Upload, LogOut, Key, Check, AlertCircle, Archive } from 'lucide-react';
 import { UserProfile } from '../types';
 import { redimensionarImagem } from '../lib/utils';
 import { updatePassword, signOut, auth } from '../lib/firebase';
@@ -235,7 +235,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="py-2.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 rounded-xl border border-emerald-500/20 flex items-center justify-center gap-1.5 transition-colors font-medium"
               >
                 <Download className="w-3.5 h-3.5" />
-                Baixar Backup
+                Baixar Dados
               </button>
 
               <button
@@ -244,7 +244,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="py-2.5 px-3 bg-white/5 hover:bg-white/10 text-neutral-300 rounded-xl border border-white/10 flex items-center justify-center gap-1.5 transition-colors font-medium"
               >
                 <Upload className="w-3.5 h-3.5" />
-                Restaurar Backup
+                Restaurar Dados
               </button>
               <input
                 ref={backupInputRef}
@@ -257,6 +257,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 }}
               />
             </div>
+
+            <a
+              href="/projeto-completo.zip"
+              download="projeto-sutello-financeiro.zip"
+              className="w-full py-2.5 px-3 bg-purple-600/15 hover:bg-purple-600/25 text-purple-300 rounded-xl border border-purple-500/30 flex items-center justify-center gap-2 transition-colors font-medium text-center"
+            >
+              <Archive className="w-3.5 h-3.5" />
+              Baixar Código Fonte Completo (.ZIP)
+            </a>
           </div>
 
           {/* Sair da Conta */}
