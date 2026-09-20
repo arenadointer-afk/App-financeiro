@@ -1,0 +1,107 @@
+import React from 'react';
+import { Eye, EyeOff, Settings, Lock, CloudCheck, CloudOff } from 'lucide-react';
+import { UserProfile } from '../types';
+
+interface HeaderProps {
+  profile: UserProfile;
+  isPrivate: boolean;
+  isCloudSynced: boolean;
+  onTogglePrivacy: () => void;
+  onOpenSettings: () => void;
+  onLockApp: () => void;
+}
+
+export const Header: React.FC<HeaderProps> = ({
+  profile,
+  isPrivate,
+  isCloudSynced,
+  onTogglePrivacy,
+  onOpenSettings,
+  onLockApp,
+}) => {
+  return (
+    <header className="sticky top-0 z-40 bg-[#0c0c16]/90 backdrop-blur-xl border-b border-white/10 px-4 py-3.5 flex items-center justify-between">
+      {/* Perfil */}
+      <div
+        className="flex items-center gap-3 cursor-pointer group"
+        onClick={onOpenSettings}
+        title="Abrir configurações de perfil"
+      >
+        <div className="relative">
+          <div className="w-11 h-11 rounded-full border-2 border-purple-500 overflow-hidden bg-purple-900/40 flex items-center justify-center shadow-md shadow-purple-600/20 group-hover:scale-105 transition-transform">
+            {profile.fotoPerfil ? (
+              <img src={profile.fotoPerfil} alt="Avatar" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-base font-bold text-purple-300 font-display">
+                {profile.nome?.charAt(0).toUpperCase() || 'S'}
+              </span>
+            )}
+          </div>
+          {/* Status badge */}
+          <span
+            className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#0c0c16] ${
+              isCloudSynced ? 'bg-emerald-400' : 'bg-amber-400'
+            }`}
+            title={isCloudSynced ? 'Conectado à nuvem Firebase' : 'Sincronizando / Offline'}
+          />
+        </div>
+
+        <div>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-sm font-bold text-white font-display tracking-tight group-hover:text-purple-300 transition-colors">
+              {profile.nome ? `Olá, ${profile.nome}` : 'Sutello Financeiro'}
+            </h2>
+          </div>
+          <p className="text-[11px] text-neutral-400 flex items-center gap-1">
+            {isCloudSynced ? (
+              <span className="text-emerald-400/90 flex items-center gap-1 text-[10px]">
+                ● Nuvem ativa
+              </span>
+            ) : (
+              <span className="text-amber-400/90 flex items-center gap-1 text-[10px]">
+                ○ Modo local
+              </span>
+            )}
+          </p>
+        </div>
+      </div>
+
+      {/* Controles do Topo */}
+      <div className="flex items-center gap-1.5">
+        {/* Botão de Privacidade */}
+        <button
+          type="button"
+          onClick={onTogglePrivacy}
+          className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-all ${
+            isPrivate
+              ? 'bg-purple-600/20 text-purple-300 border-purple-500/40 shadow-sm'
+              : 'bg-white/5 hover:bg-white/10 text-neutral-400 border-white/10'
+          }`}
+          title={isPrivate ? 'Mostrar valores' : 'Ocultar valores (Modo Privacidade)'}
+        >
+          {isPrivate ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        </button>
+
+        {/* Botão Configurações */}
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10 flex items-center justify-center transition-colors"
+          title="Configurações"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
+
+        {/* Botão Bloquear */}
+        <button
+          type="button"
+          onClick={onLockApp}
+          className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-red-400 border border-white/10 flex items-center justify-center transition-colors"
+          title="Bloquear aplicativo"
+        >
+          <Lock className="w-4 h-4" />
+        </button>
+      </div>
+    </header>
+  );
+};
