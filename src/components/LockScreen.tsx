@@ -15,7 +15,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   isFirebaseAuthenticated,
   userEmail,
 }) => {
-  const [authMode, setAuthMode] = useState<'firebase' | 'pin'>('firebase');
+  // Inicia com PIN por padrão para acesso imediato e confiável
+  const [authMode, setAuthMode] = useState<'firebase' | 'pin'>('pin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [pinInput, setPinInput] = useState('');
@@ -24,30 +25,30 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
 
-  // Verifica se o navegador suporta WebAuthn
+  // Verifica se o navegador suporta WebAuthn de forma segura
   useEffect(() => {
     async function checkBio() {
-      if (window.PublicKeyCredential) {
-        try {
-          const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-          setBiometricAvailable(available);
+      try {
+        if (typeof window !== 'undefined' && 'PublicKeyCredential' in window && window.PublicKeyCredential) {
+          const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(() => false);
+          setBiometricAvailable(!!available);
           if (available && localStorage.getItem('biometria_cadastrada') === 'true') {
-            // Tenta auto login biometria após breve montagem
             setTimeout(() => {
               handleBiometrics(true);
             }, 400);
           }
-        } catch {
-          setBiometricAvailable(false);
         }
+      } catch (e) {
+        console.warn('Verificação de biometria ignorada:', e);
+        setBiometricAvailable(false);
       }
     }
     checkBio();
   }, []);
 
-  // Se já estiver autenticado no Firebase, dá preferência ao PIN / Biometria direto
+  // Se estiver offline ou já autenticado no Firebase, prioriza o PIN / Biometria direto
   useEffect(() => {
-    if (isFirebaseAuthenticated) {
+    if (isFirebaseAuthenticated || (typeof navigator !== 'undefined' && !navigator.onLine)) {
       setAuthMode('pin');
     }
   }, [isFirebaseAuthenticated]);
@@ -55,6 +56,10 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   // Login com Firebase Email/Senha
   const handleFirebaseLogin = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setErrorMessage('Você está sem internet no momento. Alterne para o modo PIN para entrar offline!');
+      return;
+    }
     if (!email.trim() || !password) {
       setErrorMessage('Por favor, informe seu e-mail e sua senha.');
       return;
@@ -235,7 +240,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 mt-2 bg-purple-600 hover:bg-purple-500 active:scale-[0.98] text-white font-semibold text-sm rounded-xl transition-all shadow-lg shadow-purple-600/30 disabled:opacity-50"
+              className="w-full py-3.5 mt-2 bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-semibold text-sm rounded-xl transition-transform duration-75 shadow-lg shadow-purple-600/30 disabled:opacity-50 touch-manipulation"
             >
               {loading ? 'Entrando...' : 'Entrar com Firebase'}
             </button>
@@ -244,9 +249,9 @@ export const LockScreen: React.FC<LockScreenProps> = ({
               <button
                 type="button"
                 onClick={() => handleBiometrics()}
-                className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium text-sm rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                className="w-full py-3 bg-white/5 hover:bg-white/10 active:bg-white/20 border border-white/10 text-white font-medium text-sm rounded-xl flex items-center justify-center gap-2 transition-transform duration-75 active:scale-95 touch-manipulation"
               >
-                <Fingerprint className="w-4 h-4 text-purple-400" />
+                <Fingerprint className="w-4 h-4 text-purple-400 pointer-events-none" />
                 Usar Biometria
               </button>
             )}
@@ -257,7 +262,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                 setErrorMessage(null);
                 setAuthMode('pin');
               }}
-              className="w-full text-center text-xs text-neutral-400 hover:text-white pt-2 transition-colors"
+              className="w-full text-center text-xs text-neutral-400 hover:text-white pt-2 transition-colors touch-manipulation"
             >
               Entrar rapidamente via PIN
             </button>
@@ -279,13 +284,13 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             </div>
 
             {/* Numeric Keypad */}
-            <div className="grid grid-cols-3 gap-2.5 w-full max-w-[260px] my-2">
+            <div className="grid grid-cols-3 gap-2.5 w-full max-w-[260px] my-2 select-none touch-manipulation">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((num) => (
                 <button
                   key={num}
                   type="button"
                   onClick={() => handlePinSubmit(num)}
-                  className="h-12 rounded-xl bg-white/5 hover:bg-white/10 active:bg-purple-600/30 text-lg font-semibold text-white border border-white/10 flex items-center justify-center transition-all active:scale-95"
+                  className="h-12 rounded-xl bg-white/5 hover:bg-white/10 active:bg-purple-600/40 text-lg font-semibold text-white border border-white/10 flex items-center justify-center transition-transform duration-75 active:scale-90 touch-manipulation"
                 >
                   {num}
                 </button>
@@ -293,34 +298,34 @@ export const LockScreen: React.FC<LockScreenProps> = ({
               <button
                 type="button"
                 onClick={() => setPinInput('')}
-                className="h-12 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-neutral-400 border border-white/10 flex items-center justify-center active:scale-95"
+                className="h-12 rounded-xl bg-white/5 hover:bg-white/10 active:bg-white/20 text-xs text-neutral-400 border border-white/10 flex items-center justify-center transition-transform duration-75 active:scale-90 touch-manipulation"
               >
                 Limpar
               </button>
               <button
                 type="button"
                 onClick={() => handlePinSubmit('0')}
-                className="h-12 rounded-xl bg-white/5 hover:bg-white/10 active:bg-purple-600/30 text-lg font-semibold text-white border border-white/10 flex items-center justify-center transition-all active:scale-95"
+                className="h-12 rounded-xl bg-white/5 hover:bg-white/10 active:bg-purple-600/40 text-lg font-semibold text-white border border-white/10 flex items-center justify-center transition-transform duration-75 active:scale-90 touch-manipulation"
               >
                 0
               </button>
               <button
                 type="button"
                 onClick={() => setPinInput((prev) => prev.slice(0, -1))}
-                className="h-12 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-neutral-400 border border-white/10 flex items-center justify-center active:scale-95"
+                className="h-12 rounded-xl bg-white/5 hover:bg-white/10 active:bg-white/20 text-xs text-neutral-400 border border-white/10 flex items-center justify-center transition-transform duration-75 active:scale-90 touch-manipulation"
               >
                 ⌫
               </button>
             </div>
 
-            <div className="flex gap-2 w-full mt-4">
+            <div className="flex gap-2 w-full mt-4 touch-manipulation select-none">
               {biometricAvailable && (
                 <button
                   type="button"
                   onClick={() => handleBiometrics()}
-                  className="flex-1 py-3 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 font-medium text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all"
+                  className="flex-1 py-3 bg-purple-600/20 hover:bg-purple-600/30 active:bg-purple-600/40 border border-purple-500/30 text-purple-300 font-medium text-xs rounded-xl flex items-center justify-center gap-1.5 transition-transform duration-75 active:scale-95 touch-manipulation"
                 >
-                  <Fingerprint className="w-4 h-4" />
+                  <Fingerprint className="w-4 h-4 pointer-events-none" />
                   Biometria
                 </button>
               )}
@@ -330,9 +335,9 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                   setErrorMessage(null);
                   setAuthMode('firebase');
                 }}
-                className="flex-1 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-neutral-300 font-medium text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all"
+                className="flex-1 py-3 bg-white/5 hover:bg-white/10 active:bg-white/20 border border-white/10 text-neutral-300 font-medium text-xs rounded-xl flex items-center justify-center gap-1.5 transition-transform duration-75 active:scale-95 touch-manipulation"
               >
-                <Mail className="w-4 h-4" />
+                <Mail className="w-4 h-4 pointer-events-none" />
                 Email / Senha
               </button>
             </div>

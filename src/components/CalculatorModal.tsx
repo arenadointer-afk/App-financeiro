@@ -81,28 +81,32 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Grid de teclas */}
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-4 gap-2 touch-manipulation select-none">
           <button
+            type="button"
             onClick={handleClear}
-            className="py-3 bg-red-500/15 hover:bg-red-500/25 text-red-400 rounded-xl text-sm font-bold border border-red-500/20 active:scale-95"
+            className="py-3 bg-red-500/15 hover:bg-red-500/25 active:bg-red-500/40 text-red-400 rounded-xl text-sm font-bold border border-red-500/20 active:scale-90 transition-transform duration-75 touch-manipulation"
           >
             C
           </button>
           <button
+            type="button"
             onClick={handleBackspace}
-            className="py-3 bg-white/5 hover:bg-white/10 text-neutral-300 rounded-xl text-sm font-semibold border border-white/10 flex items-center justify-center active:scale-95"
+            className="py-3 bg-white/5 hover:bg-white/10 active:bg-white/20 text-neutral-300 rounded-xl text-sm font-semibold border border-white/10 flex items-center justify-center active:scale-90 transition-transform duration-75 touch-manipulation"
           >
-            <Delete className="w-4 h-4" />
+            <Delete className="w-4 h-4 pointer-events-none" />
           </button>
           <button
+            type="button"
             onClick={() => handleInput('%')}
-            className="py-3 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 rounded-xl text-sm font-semibold border border-purple-500/20 active:scale-95"
+            className="py-3 bg-purple-500/10 hover:bg-purple-500/20 active:bg-purple-500/40 text-purple-300 rounded-xl text-sm font-semibold border border-purple-500/20 active:scale-90 transition-transform duration-75 touch-manipulation"
           >
             %
           </button>
           <button
+            type="button"
             onClick={() => handleInput('÷')}
-            className="py-3 bg-purple-600/30 hover:bg-purple-600/40 text-purple-300 rounded-xl text-base font-bold border border-purple-500/30 active:scale-95"
+            className="py-3 bg-purple-600/30 hover:bg-purple-600/40 active:bg-purple-600/60 text-purple-300 rounded-xl text-base font-bold border border-purple-500/30 active:scale-90 transition-transform duration-75 touch-manipulation"
           >
             ÷
           </button>
@@ -110,15 +114,17 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({ isOpen, onClos
           {['7', '8', '9'].map((n) => (
             <button
               key={n}
+              type="button"
               onClick={() => handleInput(n)}
-              className="py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl text-base font-semibold border border-white/10 active:scale-95"
+              className="py-3 bg-white/5 hover:bg-white/10 active:bg-white/20 text-white rounded-xl text-base font-semibold border border-white/10 active:scale-90 transition-transform duration-75 touch-manipulation"
             >
               {n}
             </button>
           ))}
           <button
+            type="button"
             onClick={() => handleInput('×')}
-            className="py-3 bg-purple-600/30 hover:bg-purple-600/40 text-purple-300 rounded-xl text-base font-bold border border-purple-500/30 active:scale-95"
+            className="py-3 bg-purple-600/30 hover:bg-purple-600/40 active:bg-purple-600/60 text-purple-300 rounded-xl text-base font-bold border border-purple-500/30 active:scale-90 transition-transform duration-75 touch-manipulation"
           >
             ×
           </button>
@@ -126,15 +132,17 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({ isOpen, onClos
           {['4', '5', '6'].map((n) => (
             <button
               key={n}
+              type="button"
               onClick={() => handleInput(n)}
-              className="py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl text-base font-semibold border border-white/10 active:scale-95"
+              className="py-3 bg-white/5 hover:bg-white/10 active:bg-white/20 text-white rounded-xl text-base font-semibold border border-white/10 active:scale-90 transition-transform duration-75 touch-manipulation"
             >
               {n}
             </button>
           ))}
           <button
+            type="button"
             onClick={() => handleInput('−')}
-            className="py-3 bg-purple-600/30 hover:bg-purple-600/40 text-purple-300 rounded-xl text-base font-bold border border-purple-500/30 active:scale-95"
+            className="py-3 bg-purple-600/30 hover:bg-purple-600/40 active:bg-purple-600/60 text-purple-300 rounded-xl text-base font-bold border border-purple-500/30 active:scale-90 transition-transform duration-75 touch-manipulation"
           >
             −
           </button>
@@ -142,34 +150,39 @@ export const CalculatorModal: React.FC<CalculatorModalProps> = ({ isOpen, onClos
           {['1', '2', '3'].map((n) => (
             <button
               key={n}
+              type="button"
               onClick={() => handleInput(n)}
-              className="py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl text-base font-semibold border border-white/10 active:scale-95"
+              className="py-3 bg-white/5 hover:bg-white/10 active:bg-white/20 text-white rounded-xl text-base font-semibold border border-white/10 active:scale-90 transition-transform duration-75 touch-manipulation"
             >
               {n}
             </button>
           ))}
           <button
+            type="button"
             onClick={() => handleInput('+')}
-            className="py-3 bg-purple-600/30 hover:bg-purple-600/40 text-purple-300 rounded-xl text-base font-bold border border-purple-500/30 active:scale-95"
+            className="py-3 bg-purple-600/30 hover:bg-purple-600/40 active:bg-purple-600/60 text-purple-300 rounded-xl text-base font-bold border border-purple-500/30 active:scale-90 transition-transform duration-75 touch-manipulation"
           >
             +
           </button>
 
           <button
+            type="button"
             onClick={() => handleInput('0')}
-            className="col-span-2 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl text-base font-semibold border border-white/10 active:scale-95"
+            className="col-span-2 py-3 bg-white/5 hover:bg-white/10 active:bg-white/20 text-white rounded-xl text-base font-semibold border border-white/10 active:scale-90 transition-transform duration-75 touch-manipulation"
           >
             0
           </button>
           <button
+            type="button"
             onClick={() => handleInput('.')}
-            className="py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl text-base font-bold border border-white/10 active:scale-95"
+            className="py-3 bg-white/5 hover:bg-white/10 active:bg-white/20 text-white rounded-xl text-base font-bold border border-white/10 active:scale-90 transition-transform duration-75 touch-manipulation"
           >
             .
           </button>
           <button
+            type="button"
             onClick={handleCalculate}
-            className="py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-base font-bold shadow-lg shadow-emerald-600/30 active:scale-95"
+            className="py-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-xl text-base font-bold shadow-lg shadow-emerald-600/30 active:scale-90 transition-transform duration-75 touch-manipulation"
           >
             =
           </button>

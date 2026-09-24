@@ -80,30 +80,30 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         </div>
 
         {/* Seleção do Tipo */}
-        <div className="grid grid-cols-2 gap-2 mb-4">
+        <div className="grid grid-cols-2 gap-2 mb-4 touch-manipulation select-none">
           <button
             type="button"
             onClick={() => setTipoPagamento('total')}
-            className={`py-2.5 px-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 transition-all ${
+            className={`py-2.5 px-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 transition-transform duration-75 active:scale-95 touch-manipulation ${
               tipoPagamento === 'total'
                 ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-sm'
                 : 'bg-white/5 border-white/10 text-neutral-400 hover:text-white'
             }`}
           >
-            <CheckCircle2 className="w-4 h-4" />
+            <CheckCircle2 className="w-4 h-4 pointer-events-none" />
             Pagar Mês Atual
           </button>
 
           <button
             type="button"
             onClick={() => setTipoPagamento('parcial')}
-            className={`py-2.5 px-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 transition-all ${
+            className={`py-2.5 px-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 transition-transform duration-75 active:scale-95 touch-manipulation ${
               tipoPagamento === 'parcial'
                 ? 'bg-purple-500/20 border-purple-500 text-purple-300 shadow-sm'
                 : 'bg-white/5 border-white/10 text-neutral-400 hover:text-white'
             }`}
           >
-            <Split className="w-4 h-4" />
+            <Split className="w-4 h-4 pointer-events-none" />
             Pagamento Parcial
           </button>
         </div>
@@ -145,18 +145,18 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           </div>
         )}
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 touch-manipulation select-none">
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-neutral-400 text-xs font-semibold rounded-xl border border-white/10"
+            className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 active:bg-white/20 active:scale-95 text-neutral-400 text-xs font-semibold rounded-xl border border-white/10 transition-transform duration-75 touch-manipulation"
           >
             Cancelar
           </button>
           <button
             type="button"
             onClick={handleConfirm}
-            className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all"
+            className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-transform duration-75 touch-manipulation"
           >
             Confirmar Pagamento
           </button>

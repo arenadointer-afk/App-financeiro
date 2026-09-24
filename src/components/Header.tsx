@@ -1,26 +1,30 @@
 import React from 'react';
-import { Eye, EyeOff, Settings, Lock, CloudCheck, CloudOff } from 'lucide-react';
+import { Eye, EyeOff, Settings, Lock, CloudCheck, CloudOff, Bell } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface HeaderProps {
   profile: UserProfile;
   isPrivate: boolean;
   isCloudSynced: boolean;
+  unreadNotificationsCount?: number;
+  onOpenNotifications?: () => void;
   onTogglePrivacy: () => void;
   onOpenSettings: () => void;
   onLockApp: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({
+export const Header: React.FC<HeaderProps> = React.memo(({
   profile,
   isPrivate,
   isCloudSynced,
+  unreadNotificationsCount = 0,
+  onOpenNotifications,
   onTogglePrivacy,
   onOpenSettings,
   onLockApp,
 }) => {
   return (
-    <header className="sticky top-0 z-40 bg-[#0c0c16]/90 backdrop-blur-xl border-b border-white/10 px-4 py-3.5 flex items-center justify-between">
+    <header className="sticky top-0 z-40 bg-[#0c0c16]/90 backdrop-blur-xl border-b border-white/10 px-4 py-3.5 flex items-center justify-between touch-manipulation select-none">
       {/* Perfil */}
       <div
         className="flex items-center gap-3 cursor-pointer group"
@@ -68,6 +72,29 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Controles do Topo */}
       <div className="flex items-center gap-1.5">
+        {/* Sino de Notificações */}
+        <button
+          type="button"
+          onClick={onOpenNotifications}
+          className={`relative w-9 h-9 rounded-xl border flex items-center justify-center transition-all ${
+            unreadNotificationsCount > 0
+              ? 'bg-purple-600/20 text-purple-300 border-purple-500/40 hover:bg-purple-600/30'
+              : 'bg-white/5 hover:bg-white/10 text-neutral-400 border-white/10'
+          }`}
+          title={
+            unreadNotificationsCount > 0
+              ? `${unreadNotificationsCount} novas notificações pendentes`
+              : 'Nenhuma notificação nova'
+          }
+        >
+          <Bell className="w-4 h-4" />
+          {unreadNotificationsCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-extrabold rounded-full flex items-center justify-center border-2 border-[#0c0c16] shadow-sm animate-pulse">
+              {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+            </span>
+          )}
+        </button>
+
         {/* Botão de Privacidade */}
         <button
           type="button"
@@ -104,4 +131,5 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
     </header>
   );
-};
+});
+

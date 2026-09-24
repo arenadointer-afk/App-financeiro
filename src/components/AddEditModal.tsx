@@ -180,13 +180,13 @@ export const AddEditModal: React.FC<AddEditModalProps> = ({
             <label className="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">
               Quem vai pagar?
             </label>
-            <div className="flex gap-2">
+            <div className="flex gap-2 touch-manipulation select-none">
               {['Leonardo', 'Vitórya', 'Outro'].map((p) => (
                 <button
                   key={p}
                   type="button"
                   onClick={() => setPagador(p)}
-                  className={`flex-1 py-2 rounded-xl text-xs font-medium border transition-all ${
+                  className={`flex-1 py-2 rounded-xl text-xs font-medium border transition-transform duration-75 active:scale-95 touch-manipulation ${
                     pagador === p
                       ? 'bg-purple-600/30 border-purple-500 text-purple-200 font-semibold'
                       : 'bg-white/5 border-white/10 text-neutral-400 hover:text-white'
@@ -264,17 +264,17 @@ export const AddEditModal: React.FC<AddEditModalProps> = ({
           </div>
 
           {/* Botões */}
-          <div className="flex gap-2 pt-2">
+          <div className="flex gap-2 pt-2 touch-manipulation select-none">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-neutral-300 text-sm font-semibold rounded-xl border border-white/10 transition-colors"
+              className="flex-1 py-3 bg-white/5 hover:bg-white/10 active:bg-white/20 active:scale-95 text-neutral-300 text-sm font-semibold rounded-xl border border-white/10 transition-transform duration-75 touch-manipulation"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white text-sm font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all"
+              className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-sm font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-transform duration-75 touch-manipulation"
             >
               Salvar Conta
             </button>

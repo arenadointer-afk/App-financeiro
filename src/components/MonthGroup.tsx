@@ -19,7 +19,7 @@ interface MonthGroupProps {
   onDownloadReceipt: (conta: Conta) => void;
 }
 
-export const MonthGroup: React.FC<MonthGroupProps> = ({
+export const MonthGroup: React.FC<MonthGroupProps> = React.memo(({
   mes,
   contas,
   isPrivate,
@@ -163,4 +163,4 @@ export const MonthGroup: React.FC<MonthGroupProps> = ({
       </div>
     </div>
   );
-};
+});

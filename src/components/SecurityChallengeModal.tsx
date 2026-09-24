@@ -80,17 +80,17 @@ export const SecurityChallengeModal: React.FC<SecurityChallengeModalProps> = ({
 
           {error && <p className="text-xs text-red-400 font-medium">Resposta incorreta. Tente novamente.</p>}
 
-          <div className="flex gap-2 pt-2">
+          <div className="flex gap-2 pt-2 touch-manipulation select-none">
             <button
               type="button"
               onClick={onCancel}
-              className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-neutral-300 text-xs font-semibold rounded-xl border border-white/10 transition-colors"
+              className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 active:bg-white/20 active:scale-95 text-neutral-300 text-xs font-semibold rounded-xl border border-white/10 transition-transform duration-75 touch-manipulation"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-purple-600/30 transition-colors"
+              className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-500 active:scale-95 text-white text-xs font-semibold rounded-xl shadow-lg shadow-purple-600/30 transition-transform duration-75 touch-manipulation"
             >
               Confirmar
             </button>

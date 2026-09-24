@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="115" ry="115" fill="#050508"/>
+  <g fill="#FFFFFF" text-anchor="middle" dominant-baseline="central">
+    <text x="256" y="258" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="900" font-size="114" letter-spacing="-1">
+      <tspan fill="#FFFFFF">$</tspan>utello
+    </text>
+  </g>
+</svg>

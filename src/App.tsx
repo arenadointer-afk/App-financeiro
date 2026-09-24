@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Search,
   Filter,
@@ -13,16 +13,23 @@ import {
   QrCode,
   Layers,
 } from 'lucide-react';
-import { Conta, LogAtividade, UserProfile, FiltroContas } from './types';
+import { Conta, LogAtividade, UserProfile, FiltroContas, NotificacaoAlerta } from './types';
 import {
   auth,
-  onAuthStateChanged,
+  onAuthStateChangedSafe,
   subscribeToFinancialData,
   saveFinancialDataToCloud,
   subscribeToUserProfile,
   saveUserProfileToCloud,
   signOut,
+  syncPendingDataIfOnline,
+  PENDING_SYNC_KEY,
 } from './lib/firebase';
+import {
+  notifyContaVencida,
+  notifyParcelasConcluidas,
+  notifyNovaConta,
+} from './lib/deviceNotifications';
 import { getMesAno, proximoMes, isoParaBR, formatCurrency } from './lib/utils';
 import { Header } from './components/Header';
 import { MonthGroup } from './components/MonthGroup';
@@ -35,6 +42,8 @@ import { CalculatorModal } from './components/CalculatorModal';
 import { CashFlowModal } from './components/CashFlowModal';
 import { ActivityLogsModal } from './components/ActivityLogsModal';
 import { SettingsModal } from './components/SettingsModal';
+import { InstallAppBanner } from './components/InstallAppBanner';
+import { NotificationsModal } from './components/NotificationsModal';
 
 export default function App() {
   // Estado de bloqueio / autenticação
@@ -75,8 +84,8 @@ export default function App() {
     }
   });
 
-  // Filtros e busca
-  const [filtro, setFiltro] = useState<FiltroContas>('todas');
+  // Filtros e busca: Inicia com 'pendentes' para mostrar diretamente as contas a pagar na página inicial
+  const [filtro, setFiltro] = useState<FiltroContas>('pendentes');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [isPrivate, setIsPrivate] = useState<boolean>(() => {
     return localStorage.getItem('modoPrivado') === 'true';
@@ -99,18 +108,58 @@ export default function App() {
   const [isFlowOpen, setIsFlowOpen] = useState(false);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+
+  // Status de conexão e feedback de sincronização
+  const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
+
+  // IDs de notificações já visualizadas/dispensadas pelo usuário
+  const [viewedNotificationIds, setViewedNotificationIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('sutello_notificacoes_vistas');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Rastreamento de contas conhecidas para detectar quando outra pessoa adicionar uma nova conta em tempo real
+  const knownContaIdsRef = useRef<Set<string | number>>(new Set());
+  const hasInitializedContasRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (contas && contas.length > 0 && knownContaIdsRef.current.size === 0) {
+      contas.forEach((c) => knownContaIdsRef.current.add(c.id));
+    }
+  }, [contas]);
 
   // 1. Monitorar estado de autenticação do Firebase
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChangedSafe((user) => {
       setFirebaseUser(user);
       if (user) {
         setIsCloudSynced(true);
         // Sincroniza em tempo real dados da nuvem
         const unsubData = subscribeToFinancialData(user.uid, (cloudContas, cloudLogs) => {
           if (cloudContas && cloudContas.length > 0) {
+            // Se já inicializou e chegaram novas contas que não tínhamos, avisa que alguém adicionou nova conta
+            if (hasInitializedContasRef.current) {
+              const recemAdicionadas = cloudContas.filter(
+                (c) => !knownContaIdsRef.current.has(c.id)
+              );
+              recemAdicionadas.forEach((nova) => {
+                notifyNovaConta(nova, nova.pagador);
+              });
+            }
+
+            cloudContas.forEach((c) => knownContaIdsRef.current.add(c.id));
+            hasInitializedContasRef.current = true;
+
             setContas(cloudContas);
             localStorage.setItem('contas', JSON.stringify(cloudContas));
+          } else {
+            hasInitializedContasRef.current = true;
           }
           if (cloudLogs && cloudLogs.length > 0) {
             setLogs(cloudLogs);
@@ -144,6 +193,210 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  // 1.1 Monitorar conexão de rede e enviar todas as mudanças feitas offline assim que a internet voltar
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      if (auth?.currentUser) {
+        syncPendingDataIfOnline(auth.currentUser.uid, contas, logs, () => {
+          setIsCloudSynced(true);
+          setSyncToastMessage('Conexão restabelecida! Alterações sincronizadas com a nuvem.');
+          setTimeout(() => setSyncToastMessage(null), 4000);
+        });
+      } else {
+        setSyncToastMessage('Conexão com a internet restabelecida.');
+        setTimeout(() => setSyncToastMessage(null), 3000);
+      }
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      setIsCloudSynced(false);
+      setSyncToastMessage('Você está sem internet. O aplicativo continua funcionando normalmente e salvará tudo na nuvem assim que reconectar.');
+      setTimeout(() => setSyncToastMessage(null), 5000);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Se estiver online agora e houver pendências do último acesso offline, envia
+    if (navigator.onLine && auth?.currentUser) {
+      syncPendingDataIfOnline(auth.currentUser.uid, contas, logs, () => {
+        setIsCloudSynced(true);
+      });
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [contas, logs]);
+
+  // 1.2 Monitorar contas vencidas e disparar alertas no celular
+  useEffect(() => {
+    if (!contas || contas.length === 0) return;
+    const hojeStr = new Date().toISOString().split('T')[0];
+    const hojeDate = new Date(hojeStr + 'T00:00:00');
+
+    contas.forEach((conta) => {
+      if (conta.oculta || conta.paga || !conta.vencimento) return;
+      const vencDate = new Date(conta.vencimento + 'T00:00:00');
+      const diffMs = vencDate.getTime() - hojeDate.getTime();
+      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+      if (diffDays < 0) {
+        const diasAtraso = Math.abs(diffDays);
+        notifyContaVencida(conta, diasAtraso);
+      }
+    });
+  }, [contas]);
+
+  // Cálculo inteligente de notificações (contas atrasadas, vencendo hoje, parcelas acabando)
+  const rawNotifications = useMemo<NotificacaoAlerta[]>(() => {
+    const alerts: NotificacaoAlerta[] = [];
+    const hojeStr = new Date().toISOString().split('T')[0];
+    const hojeDate = new Date(hojeStr + 'T00:00:00');
+
+    contas.forEach((conta) => {
+      if (conta.oculta) return;
+
+      // 1. Contas NÃO pagas: Atrasadas, Vencendo Hoje, Vencendo em breve
+      if (!conta.paga && conta.vencimento) {
+        const vencDate = new Date(conta.vencimento + 'T00:00:00');
+        const diffMs = vencDate.getTime() - hojeDate.getTime();
+        const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 0) {
+          const diasAtraso = Math.abs(diffDays);
+          alerts.push({
+            id: `atrasada_${conta.id}_${conta.vencimento}`,
+            tipo: 'atrasada',
+            titulo: 'Conta Atrasada',
+            mensagem: `${conta.nome} venceu ${
+              diasAtraso === 1 ? 'ontem' : `há ${diasAtraso} dias`
+            } (${isoParaBR(conta.vencimento)}) no valor de R$ ${formatCurrency(conta.valor)} (${conta.pagador || 'Leonardo'}).`,
+            contaId: conta.id,
+            valor: conta.valor,
+            vencimento: conta.vencimento,
+            urgencia: 'alta',
+            diasAtraso,
+          });
+        } else if (diffDays === 0) {
+          alerts.push({
+            id: `hoje_${conta.id}_${conta.vencimento}`,
+            tipo: 'hoje',
+            titulo: 'Vence Hoje!',
+            mensagem: `${conta.nome} vence hoje (${isoParaBR(conta.vencimento)}) no valor de R$ ${formatCurrency(conta.valor)} (${conta.pagador || 'Leonardo'}).`,
+            contaId: conta.id,
+            valor: conta.valor,
+            vencimento: conta.vencimento,
+            urgencia: 'alta',
+          });
+        } else if (diffDays <= 2) {
+          alerts.push({
+            id: `breve_${conta.id}_${conta.vencimento}`,
+            tipo: 'breve',
+            titulo: 'Vencimento Próximo',
+            mensagem: `${conta.nome} vence ${
+              diffDays === 1 ? 'amanhã' : 'em 2 dias'
+            } (${isoParaBR(conta.vencimento)}) - R$ ${formatCurrency(conta.valor)}.`,
+            contaId: conta.id,
+            valor: conta.valor,
+            vencimento: conta.vencimento,
+            urgencia: 'media',
+          });
+        }
+      }
+
+      // 2. Parcelas acabando (última ou penúltima)
+      if (
+        conta.totalParcelas &&
+        conta.totalParcelas > 1 &&
+        conta.parcelaAtual
+      ) {
+        if (conta.parcelaAtual === conta.totalParcelas) {
+          alerts.push({
+            id: `parcela_fim_${conta.id}_${conta.parcelaAtual}_${conta.totalParcelas}`,
+            tipo: 'parcela_fim',
+            titulo: 'Última Parcela!',
+            mensagem: `${conta.nome}: Esta é a última parcela (${conta.parcelaAtual}/${conta.totalParcelas}) de R$ ${formatCurrency(conta.valor)}. Você quitará esta compra!`,
+            contaId: conta.id,
+            valor: conta.valor,
+            vencimento: conta.vencimento,
+            urgencia: 'media',
+            parcelaAtual: conta.parcelaAtual,
+            totalParcelas: conta.totalParcelas,
+          });
+        } else if (
+          conta.parcelaAtual === conta.totalParcelas - 1 &&
+          conta.totalParcelas > 2
+        ) {
+          alerts.push({
+            id: `parcela_penultima_${conta.id}_${conta.parcelaAtual}_${conta.totalParcelas}`,
+            tipo: 'parcela_penultima',
+            titulo: 'Reta Final do Parcelamento',
+            mensagem: `${conta.nome}: Parcela ${conta.parcelaAtual}/${conta.totalParcelas}. Resta apenas mais 1 parcela para quitar completamente.`,
+            contaId: conta.id,
+            valor: conta.valor,
+            vencimento: conta.vencimento,
+            urgencia: 'baixa',
+            parcelaAtual: conta.parcelaAtual,
+            totalParcelas: conta.totalParcelas,
+          });
+        }
+      }
+
+      // 3. Parcelas 100% quitadas
+      if (
+        conta.paga &&
+        conta.totalParcelas &&
+        conta.totalParcelas > 1 &&
+        (conta.parcelaAtual || 1) >= conta.totalParcelas
+      ) {
+        alerts.push({
+          id: `parcela_quitada_${conta.id}_${conta.totalParcelas}`,
+          tipo: 'parcela_quitada',
+          titulo: 'Parcelamento Concluído!',
+          mensagem: `${conta.nome}: Parabéns! Todas as ${conta.totalParcelas} parcelas foram quitadas com sucesso.`,
+          contaId: conta.id,
+          valor: conta.valor,
+          vencimento: conta.vencimento,
+          urgencia: 'baixa',
+          parcelaAtual: conta.parcelaAtual,
+          totalParcelas: conta.totalParcelas,
+        });
+      }
+    });
+
+    return alerts;
+  }, [contas]);
+
+  // Filtra as notificações ativas que ainda NÃO foram marcadas como vistas pelo usuário
+  const unreadNotifications = useMemo(() => {
+    return rawNotifications.filter((n) => !viewedNotificationIds.includes(n.id));
+  }, [rawNotifications, viewedNotificationIds]);
+
+  // Ao ver / dispensar a notificação: ela sai imediatamente
+  const handleDismissNotification = useCallback((id: string) => {
+    setViewedNotificationIds((prev) => {
+      if (prev.includes(id)) return prev;
+      const updated = [...prev, id];
+      localStorage.setItem('sutello_notificacoes_vistas', JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
+  // Marcar todas como vistas
+  const handleDismissAllNotifications = useCallback(() => {
+    const allCurrentIds = rawNotifications.map((n) => n.id);
+    setViewedNotificationIds((prev) => {
+      const merged = Array.from(new Set([...prev, ...allCurrentIds]));
+      localStorage.setItem('sutello_notificacoes_vistas', JSON.stringify(merged));
+      return merged;
+    });
+  }, [rawNotifications]);
+
 
   // 2. Persistir localmente e na nuvem
   const saveData = useCallback(
@@ -223,6 +476,9 @@ export default function App() {
         codigoPix: contaData.codigoPix || '',
       };
       const updated = [...contas, nova];
+      knownContaIdsRef.current.add(nova.id);
+      // Dispara notificação no celular de nova conta adicionada
+      notifyNovaConta(nova, nova.pagador);
       const detalhe = nova.totalParcelas
         ? `${nova.totalParcelas}x de R$ ${nova.valor.toFixed(2)}`
         : `R$ ${nova.valor.toFixed(2)}`;
@@ -252,6 +508,8 @@ export default function App() {
       if (conta.totalParcelas && conta.totalParcelas > 0) {
         if ((conta.parcelaAtual || 1) >= conta.totalParcelas) {
           deveCriarProxima = false;
+          // Dispara notificação no celular quando a conta acabou todas as parcelas (quitação)
+          notifyParcelasConcluidas(conta);
         }
       }
 
@@ -588,17 +846,54 @@ export default function App() {
         profile={profile}
         isPrivate={isPrivate}
         isCloudSynced={isCloudSynced}
+        unreadNotificationsCount={unreadNotifications.length}
+        onOpenNotifications={() => setIsNotificationsOpen(true)}
         onTogglePrivacy={togglePrivacy}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onLockApp={() => setIsUnlocked(false)}
       />
+
+      {/* Alerta de Modo Offline / Reconexão da Nuvem */}
+      {!isOnline && (
+        <div className="w-full max-w-lg mx-auto px-4 pt-2.5">
+          <div className="p-2.5 bg-amber-500/15 border border-amber-500/30 rounded-xl text-xs text-amber-200 flex items-center justify-between gap-2 shadow-sm animate-fade-in">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              <span>Modo Offline ativo • Suas alterações serão enviadas à nuvem assim que reconectar.</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {syncToastMessage && (
+        <div className="w-full max-w-lg mx-auto px-4 pt-2.5">
+          <div className="p-2.5 bg-emerald-500/15 border border-emerald-500/30 rounded-xl text-xs text-emerald-200 flex items-center justify-between gap-2 shadow-sm animate-fade-in">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{syncToastMessage}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSyncToastMessage(null)}
+              className="text-emerald-400 hover:text-emerald-200 text-xs px-1"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Banner de Instalação PWA no Celular */}
+      <div className="w-full max-w-lg mx-auto">
+        <InstallAppBanner />
+      </div>
 
       {/* Conteúdo Principal */}
       <main className="flex-1 w-full max-w-lg mx-auto px-4 pt-4 space-y-4">
         {/* Barra de Busca e Atalhos */}
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={searchTerm}
@@ -614,18 +909,26 @@ export default function App() {
               setContaToEdit(null);
               setIsAddEditOpen(true);
             }}
-            className="h-10 px-4 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-purple-600/25 active:scale-95 transition-all shrink-0"
+            className="h-10 px-4 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-purple-600/25 active:scale-95 transition-transform duration-75 shrink-0 touch-manipulation"
           >
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">Nova Conta</span>
           </button>
         </div>
 
-        {/* Cards de Resumo Geral */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-          <div className="bg-[#121222] border border-white/5 rounded-2xl p-3.5">
+        {/* Cards de Resumo Geral (Clicáveis para filtrar) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 touch-manipulation">
+          <button
+            type="button"
+            onClick={() => setFiltro('pendentes')}
+            className={`text-left rounded-2xl p-3.5 transition-transform duration-75 active:scale-[0.98] border touch-manipulation select-none ${
+              filtro === 'pendentes'
+                ? 'bg-[#181228] border-red-500/50 shadow-md shadow-red-500/10 ring-1 ring-red-500/30'
+                : 'bg-[#121222] border-white/5 hover:border-white/15'
+            }`}
+          >
             <span className="text-[10px] text-neutral-400 font-semibold uppercase tracking-wider block">
-              Total Pendente
+              Contas a Pagar {filtro === 'pendentes' && '• Ativo'}
             </span>
             <span
               className={`text-base sm:text-lg font-bold font-display text-red-400 ${
@@ -634,11 +937,19 @@ export default function App() {
             >
               {formatCurrency(statsGerais.totalPendente, isPrivate)}
             </span>
-          </div>
+          </button>
 
-          <div className="bg-[#121222] border border-white/5 rounded-2xl p-3.5">
+          <button
+            type="button"
+            onClick={() => setFiltro('pagas')}
+            className={`text-left rounded-2xl p-3.5 transition-transform duration-75 active:scale-[0.98] border touch-manipulation select-none ${
+              filtro === 'pagas'
+                ? 'bg-[#10201c] border-emerald-500/50 shadow-md shadow-emerald-500/10 ring-1 ring-emerald-500/30'
+                : 'bg-[#121222] border-white/5 hover:border-white/15'
+            }`}
+          >
             <span className="text-[10px] text-neutral-400 font-semibold uppercase tracking-wider block">
-              Total Pago
+              Total Pago {filtro === 'pagas' && '• Ativo'}
             </span>
             <span
               className={`text-base sm:text-lg font-bold font-display text-emerald-400 ${
@@ -647,11 +958,19 @@ export default function App() {
             >
               {formatCurrency(statsGerais.totalPago, isPrivate)}
             </span>
-          </div>
+          </button>
 
-          <div className="col-span-2 sm:col-span-1 bg-[#121222] border border-white/5 rounded-2xl p-3.5 flex items-center justify-between sm:flex-col sm:items-start">
+          <button
+            type="button"
+            onClick={() => setFiltro('atrasadas')}
+            className={`col-span-2 sm:col-span-1 rounded-2xl p-3.5 transition-transform duration-75 active:scale-[0.98] border flex items-center justify-between sm:flex-col sm:items-start text-left touch-manipulation select-none ${
+              filtro === 'atrasadas'
+                ? 'bg-[#221c10] border-amber-500/50 shadow-md shadow-amber-500/10 ring-1 ring-amber-500/30'
+                : 'bg-[#121222] border-white/5 hover:border-white/15'
+            }`}
+          >
             <span className="text-[10px] text-neutral-400 font-semibold uppercase tracking-wider block">
-              Atrasadas
+              Atrasadas {filtro === 'atrasadas' && '• Ativo'}
             </span>
             <span
               className={`text-base sm:text-lg font-bold font-display ${
@@ -660,11 +979,11 @@ export default function App() {
             >
               {statsGerais.qtdAtrasadas} {statsGerais.qtdAtrasadas === 1 ? 'conta' : 'contas'}
             </span>
-          </div>
+          </button>
         </div>
 
         {/* Filtros em Pílulas */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none touch-manipulation">
           {(
             [
               { id: 'todas', label: 'Todas' },
@@ -677,7 +996,7 @@ export default function App() {
               key={item.id}
               type="button"
               onClick={() => setFiltro(item.id)}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all border ${
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-transform duration-75 active:scale-95 border touch-manipulation select-none ${
                 filtro === item.id
                   ? 'bg-purple-600 border-purple-500 text-white shadow-sm shadow-purple-600/30'
                   : 'bg-[#121222] border-white/10 text-neutral-400 hover:text-white'
@@ -825,6 +1144,22 @@ export default function App() {
         onImportBackup={handleImportBackup}
         onLogout={handleLogout}
         onClose={() => setIsSettingsOpen(false)}
+      />
+
+      {/* Modal de Notificações Inteligentes */}
+      <NotificationsModal
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        notificacoes={unreadNotifications}
+        onDismiss={handleDismissNotification}
+        onDismissAll={handleDismissAllNotifications}
+        onSelectConta={(contaId) => {
+          const c = contas.find((item) => String(item.id) === String(contaId));
+          if (c) {
+            setContaToPay(c);
+            setIsPaymentOpen(true);
+          }
+        }}
       />
     </div>
   );

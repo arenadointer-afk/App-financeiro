@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#08080f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Sutello" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" type="image/png" href="./icon-192.png" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <title>Sutello Financeiro</title>
     <meta name="description" content="Gestão financeira inteligente, controle de contas a pagar, parcelamentos, fluxo mensal e sincronização em tempo real." />
     <meta property="og:title" content="Sutello Financeiro" />
@@ -17,6 +24,32 @@
   <body class="bg-[#08080f] text-neutral-100 antialiased min-h-screen selection:bg-purple-600 selection:text-white">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Diagnóstico automático para GitHub Pages se o código-fonte bruto for carregado sem build
+      window.addEventListener('load', function() {
+        setTimeout(function() {
+          var root = document.getElementById('root');
+          if (!window.__SUTELLO_LOADED__ && (!root || root.children.length === 0)) {
+            var msg = document.createElement('div');
+            msg.style.cssText = 'position:fixed;inset:0;background:#08080f;color:#fff;display:flex;align-items:center;justify-content:center;padding:20px;z-index:99999;font-family:system-ui,-apple-system,sans-serif;';
+            msg.innerHTML = '<div style="max-width:480px;width:100%;background:#131322;border:1px solid rgba(168,85,247,0.3);border-radius:20px;padding:24px;text-align:center;box-shadow:0 25px 50px -12px rgba(0,0,0,0.7);">' +
+              '<div style="font-size:36px;margin-bottom:12px;">🚀</div>' +
+              '<h2 style="font-size:18px;font-weight:700;margin:0 0 8px;color:#fff;">Como Ativar no GitHub Pages</h2>' +
+              '<p style="font-size:13px;color:#9ca3af;line-height:1.5;margin:0 0 16px;">O GitHub Pages está tentando ler o código-fonte bruto diretamente em vez de compilar o aplicativo com o Vite.</p>' +
+              '<div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px;text-align:left;font-size:12px;color:#e5e7eb;line-height:1.6;margin-bottom:18px;">' +
+                '<strong style="color:#c084fc;display:block;margin-bottom:6px;">✨ Passo a passo para corrigir (1 minuto):</strong>' +
+                '1. No seu repositório no GitHub, clique na aba <strong>Settings</strong>.<br/>' +
+                '2. Na coluna da esquerda, clique em <strong>Pages</strong>.<br/>' +
+                '3. Em <strong>Build and deployment &gt; Source</strong>, selecione <strong>GitHub Actions</strong>.<br/>' +
+                '4. Pronto! O GitHub vai rodar a compilação automática e o app abrirá perfeitamente!' +
+              '</div>' +
+              '<button onclick="location.reload()" style="cursor:pointer;padding:10px 20px;background:#9333ea;color:#fff;font-size:13px;font-weight:600;border:none;border-radius:10px;">Recarregar Página</button>' +
+            '</div>';
+            document.body.appendChild(msg);
+          }
+        }, 1500);
+      });
+    </script>
   </body>
 </html>
 

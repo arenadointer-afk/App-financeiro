@@ -1,8 +1,16 @@
-import React, { useState, useRef } from 'react';
-import { Settings, X, Camera, Shield, Download, Upload, LogOut, Key, Check, AlertCircle, Archive } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Settings, X, Camera, Shield, Download, Upload, LogOut, Key, Check, AlertCircle, Archive, Smartphone, Bell } from 'lucide-react';
 import { UserProfile } from '../types';
 import { redimensionarImagem } from '../lib/utils';
 import { updatePassword, signOut, auth } from '../lib/firebase';
+import {
+  getNotificationPreferences,
+  saveNotificationPreferences,
+  getDeviceNotificationPermission,
+  requestDeviceNotificationPermission,
+  triggerTestNotification,
+  NotificationPreferences,
+} from '../lib/deviceNotifications';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -32,11 +40,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [novaSenha, setNovaSenha] = useState('');
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default');
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>(getNotificationPreferences());
+  const [testingNotif, setTestingNotif] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setNotifPermission(getDeviceNotificationPermission());
+      setNotifPrefs(getNotificationPreferences());
+    }
+  }, [isOpen]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
+
+  const handleToggleNotif = async () => {
+    if (notifPermission !== 'granted') {
+      const res = await requestDeviceNotificationPermission();
+      setNotifPermission(res);
+      setNotifPrefs(getNotificationPreferences());
+      if (res === 'granted') {
+        setStatusMsg({ type: 'success', text: 'Notificações no celular ativadas com sucesso!' });
+      } else {
+        setStatusMsg({ type: 'error', text: 'Permissão de notificação não foi concedida pelo navegador.' });
+      }
+    } else {
+      const updated = saveNotificationPreferences({ enabled: !notifPrefs.enabled });
+      setNotifPrefs(updated);
+    }
+  };
+
+  const handleTestNotification = async () => {
+    setTestingNotif(true);
+    const ok = await triggerTestNotification();
+    setTestingNotif(false);
+    if (ok) {
+      setStatusMsg({ type: 'success', text: 'Notificação de teste enviada para o celular!' });
+    } else {
+      setStatusMsg({ type: 'error', text: 'Não foi possível disparar. Permita notificações no navegador.' });
+    }
+  };
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -195,8 +240,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               type="checkbox"
               checked={biometria}
               onChange={(e) => setBiometria(e.target.checked)}
-              className="w-4 h-4 rounded border-white/20 bg-white/5 text-purple-600 focus:ring-purple-500"
+              className="w-4 h-4 rounded border-white/20 bg-white/5 text-purple-600 focus:ring-purple-500 cursor-pointer"
             />
+          </div>
+
+          {/* Notificações no Celular */}
+          <div className="p-3.5 bg-white/5 border border-white/10 rounded-xl space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Smartphone className="w-4 h-4 text-purple-400 shrink-0" />
+                <div>
+                  <span className="font-semibold text-white block">Notificações no Celular</span>
+                  <span className="text-[11px] text-neutral-400">
+                    Avisos de contas vencidas, parcelas e novas contas
+                  </span>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={notifPermission === 'granted' && notifPrefs.enabled}
+                onChange={handleToggleNotif}
+                className="w-4 h-4 rounded border-white/20 bg-white/5 text-purple-600 focus:ring-purple-500 cursor-pointer"
+              />
+            </div>
+
+            {notifPermission === 'granted' && notifPrefs.enabled && (
+              <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+                <span className="text-[11px] text-emerald-400 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Pronto para receber alertas
+                </span>
+                <button
+                  type="button"
+                  onClick={handleTestNotification}
+                  disabled={testingNotif}
+                  className="px-2.5 py-1 text-[11px] bg-purple-600/30 hover:bg-purple-600/50 active:scale-95 text-purple-200 rounded-lg border border-purple-500/30 flex items-center gap-1 transition-all touch-manipulation"
+                >
+                  <Bell className="w-3 h-3" />
+                  <span>{testingNotif ? 'Enviando...' : 'Testar Agora'}</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Nova Senha */}
@@ -218,13 +302,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             type="button"
             disabled={saving}
             onClick={handleSave}
-            className="w-full py-3 bg-purple-600 hover:bg-purple-500 active:scale-[0.98] text-white font-bold rounded-xl shadow-lg shadow-purple-600/30 transition-all text-sm disabled:opacity-50"
+            className="w-full py-3 bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-bold rounded-xl shadow-lg shadow-purple-600/30 transition-transform duration-75 text-sm disabled:opacity-50 touch-manipulation"
           >
             {saving ? 'Salvando...' : 'Salvar Alterações'}
           </button>
 
           {/* Seção de Backup */}
-          <div className="pt-4 border-t border-white/10 space-y-2">
+          <div className="pt-4 border-t border-white/10 space-y-2 touch-manipulation select-none">
             <span className="font-semibold text-neutral-400 uppercase tracking-wider block mb-1">
               Backup e Segurança dos Dados
             </span>
@@ -232,18 +316,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button
                 type="button"
                 onClick={onExportBackup}
-                className="py-2.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 rounded-xl border border-emerald-500/20 flex items-center justify-center gap-1.5 transition-colors font-medium"
+                className="py-2.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 active:bg-emerald-500/30 active:scale-95 text-emerald-300 rounded-xl border border-emerald-500/20 flex items-center justify-center gap-1.5 transition-transform duration-75 font-medium touch-manipulation"
               >
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5 pointer-events-none" />
                 Baixar Dados
               </button>
 
               <button
                 type="button"
                 onClick={() => backupInputRef.current?.click()}
-                className="py-2.5 px-3 bg-white/5 hover:bg-white/10 text-neutral-300 rounded-xl border border-white/10 flex items-center justify-center gap-1.5 transition-colors font-medium"
+                className="py-2.5 px-3 bg-white/5 hover:bg-white/10 active:bg-white/20 active:scale-95 text-neutral-300 rounded-xl border border-white/10 flex items-center justify-center gap-1.5 transition-transform duration-75 font-medium touch-manipulation"
               >
-                <Upload className="w-3.5 h-3.5" />
+                <Upload className="w-3.5 h-3.5 pointer-events-none" />
                 Restaurar Dados
               </button>
               <input
@@ -259,23 +343,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <a
-              href="/projeto-completo.zip"
-              download="projeto-sutello-financeiro.zip"
-              className="w-full py-2.5 px-3 bg-purple-600/15 hover:bg-purple-600/25 text-purple-300 rounded-xl border border-purple-500/30 flex items-center justify-center gap-2 transition-colors font-medium text-center"
+              href="./site-pronto-dist.zip"
+              download="site-pronto-dist.zip"
+              className="w-full py-2.5 px-3 bg-emerald-600/15 hover:bg-emerald-600/25 active:bg-emerald-600/35 active:scale-95 text-emerald-300 rounded-xl border border-emerald-500/30 flex items-center justify-center gap-2 transition-transform duration-75 font-medium text-center touch-manipulation"
             >
-              <Archive className="w-3.5 h-3.5" />
+              <Download className="w-3.5 h-3.5 pointer-events-none" />
+              Baixar Site Pronto (Arquivos Compilados)
+            </a>
+
+            <a
+              href="./projeto-completo.zip"
+              download="projeto-sutello-financeiro.zip"
+              className="w-full py-2.5 px-3 bg-purple-600/15 hover:bg-purple-600/25 active:bg-purple-600/35 active:scale-95 text-purple-300 rounded-xl border border-purple-500/30 flex items-center justify-center gap-2 transition-transform duration-75 font-medium text-center touch-manipulation"
+            >
+              <Archive className="w-3.5 h-3.5 pointer-events-none" />
               Baixar Código Fonte Completo (.ZIP)
             </a>
           </div>
 
           {/* Sair da Conta */}
-          <div className="pt-2">
+          <div className="pt-2 touch-manipulation select-none">
             <button
               type="button"
               onClick={onLogout}
-              className="w-full py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl border border-red-500/20 flex items-center justify-center gap-2 transition-colors font-semibold"
+              className="w-full py-2.5 bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/30 active:scale-95 text-red-400 rounded-xl border border-red-500/20 flex items-center justify-center gap-2 transition-transform duration-75 font-semibold touch-manipulation"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-4 h-4 pointer-events-none" />
               Sair da Conta / Bloquear
             </button>
           </div>

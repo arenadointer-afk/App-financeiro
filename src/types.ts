@@ -43,3 +43,26 @@ export interface UserProfile {
 }
 
 export type FiltroContas = 'todas' | 'pendentes' | 'pagas' | 'atrasadas';
+
+export type TipoNotificacao =
+  | 'atrasada'
+  | 'hoje'
+  | 'breve'
+  | 'parcela_fim'
+  | 'parcela_penultima'
+  | 'parcela_quitada'
+  | 'nova_conta';
+
+export interface NotificacaoAlerta {
+  id: string;
+  tipo: TipoNotificacao;
+  titulo: string;
+  mensagem: string;
+  contaId?: string | number;
+  valor?: number;
+  vencimento?: string;
+  urgencia: 'alta' | 'media' | 'baixa';
+  diasAtraso?: number;
+  parcelaAtual?: number | null;
+  totalParcelas?: number | null;
+}
