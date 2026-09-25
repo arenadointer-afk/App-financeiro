@@ -25,11 +25,13 @@ import {
   syncPendingDataIfOnline,
   PENDING_SYNC_KEY,
   LAST_LOCAL_UPDATE_KEY,
+  getDeviceId,
 } from './lib/firebase';
 import {
   notifyContaVencida,
   notifyParcelasConcluidas,
   notifyNovaConta,
+  notifyContaPaga,
 } from './lib/deviceNotifications';
 import { getMesAno, proximoMes, isoParaBR, formatCurrency } from './lib/utils';
 import { Header } from './components/Header';
@@ -153,42 +155,46 @@ export default function App() {
           });
         }
 
-        // Sincroniza em tempo real dados da nuvem
+        // Sincroniza em tempo real dados da nuvem entre dispositivos
         const unsubData = subscribeToFinancialData(user.uid, (cloudContas, cloudLogs, meta) => {
-          const isPending = localStorage.getItem(PENDING_SYNC_KEY) === 'true';
-          const lastLocalTime = Number(localStorage.getItem(LAST_LOCAL_UPDATE_KEY) || 0);
-          const cloudTime = meta?.cloudTimestamp || 0;
+          const myDeviceId = getDeviceId();
+          const isFromOtherDevice = meta?.updatedByDeviceId && meta.updatedByDeviceId !== myDeviceId;
 
-          // Se tivermos alterações locais pendentes e elas forem mais recentes que os dados da nuvem:
-          // NUNCA sobrescreve com dados antigos da nuvem!
-          if (isPending && lastLocalTime >= cloudTime) {
-            console.log('Preservando alterações offline locais mais recentes.');
-            if (typeof navigator !== 'undefined' && navigator.onLine) {
-              syncPendingDataIfOnline(user.uid);
-            }
+          // Se for uma escrita pendente local deste mesmo aparelho, não precisa reprocessar
+          if (meta?.hasPendingWrites && !isFromOtherDevice) {
             return;
           }
 
-          // Se a nuvem tiver dados válidos e mais recentes
-          if (cloudContas && cloudContas.length > 0) {
-            // Se já inicializou e chegaram novas contas que não tínhamos, avisa que alguém adicionou nova conta
-            if (hasInitializedContasRef.current) {
+          if (cloudContas !== undefined) {
+            // Se veio do outro celular em tempo real:
+            if (hasInitializedContasRef.current && isFromOtherDevice) {
+              // 1. Notifica novas contas adicionadas no outro celular
               const recemAdicionadas = cloudContas.filter(
                 (c) => !knownContaIdsRef.current.has(c.id)
               );
               recemAdicionadas.forEach((nova) => {
-                notifyNovaConta(nova, nova.pagador);
+                notifyNovaConta(nova, nova.pagador || 'Outro celular');
               });
+
+              // 2. Notifica contas marcadas como pagas no outro celular
+              cloudContas.forEach((nova) => {
+                const anterior = contas.find((ant) => ant.id === nova.id);
+                if (anterior && !anterior.paga && nova.paga) {
+                  notifyContaPaga(nova, nova.pagador || 'Outro celular');
+                }
+              });
+
+              setSyncToastMessage('📱 Atualização recebida do outro celular em tempo real!');
+              setTimeout(() => setSyncToastMessage(null), 3500);
+            } else {
+              hasInitializedContasRef.current = true;
             }
 
             cloudContas.forEach((c) => knownContaIdsRef.current.add(c.id));
-            hasInitializedContasRef.current = true;
 
             setContas(cloudContas);
             localStorage.setItem('contas', JSON.stringify(cloudContas));
             localStorage.removeItem(PENDING_SYNC_KEY);
-          } else {
-            hasInitializedContasRef.current = true;
           }
 
           if (cloudLogs && cloudLogs.length > 0) {
@@ -875,6 +881,7 @@ export default function App() {
         profile={profile}
         isPrivate={isPrivate}
         isCloudSynced={isCloudSynced}
+        userEmail={firebaseUser?.email}
         unreadNotificationsCount={unreadNotifications.length}
         onOpenNotifications={() => setIsNotificationsOpen(true)}
         onTogglePrivacy={togglePrivacy}
