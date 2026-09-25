@@ -53,28 +53,49 @@ try {
 export const auth = authInstance;
 export const db = dbInstance;
 
+export const PENDING_SYNC_KEY = 'sutello_pending_cloud_sync';
+export const LAST_LOCAL_UPDATE_KEY = 'sutello_last_local_update_time';
+
+export interface SnapshotMetadataInfo {
+  hasPendingWrites: boolean;
+  fromCache: boolean;
+  cloudTimestamp: number;
+}
+
 /**
  * Escuta em tempo real os dados financeiros do usuário
  */
 export function subscribeToFinancialData(
   uid: string,
-  onData: (contas: Conta[], logs: LogAtividade[]) => void,
+  onData: (contas: Conta[], logs: LogAtividade[], meta?: SnapshotMetadataInfo) => void,
   onError?: (err: unknown) => void
 ) {
   if (!db) {
-    onData([], []);
+    onData([], [], { hasPendingWrites: false, fromCache: false, cloudTimestamp: 0 });
     return () => {};
   }
   try {
     const docRef = doc(db, 'dados_financeiros', uid);
     return onSnapshot(
       docRef,
+      { includeMetadataChanges: true },
       (snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data();
-          onData(data.contas || [], data.logs || []);
+          const cloudTimestamp = typeof data.timestamp === 'number' 
+            ? data.timestamp 
+            : (data.ultimaAtualizacao ? new Date(data.ultimaAtualizacao).getTime() : 0);
+          onData(data.contas || [], data.logs || [], {
+            hasPendingWrites: snapshot.metadata.hasPendingWrites,
+            fromCache: snapshot.metadata.fromCache,
+            cloudTimestamp,
+          });
         } else {
-          onData([], []);
+          onData([], [], {
+            hasPendingWrites: snapshot.metadata.hasPendingWrites,
+            fromCache: snapshot.metadata.fromCache,
+            cloudTimestamp: 0,
+          });
         }
       },
       (error) => {
@@ -88,69 +109,78 @@ export function subscribeToFinancialData(
   }
 }
 
-export const PENDING_SYNC_KEY = 'sutello_pending_cloud_sync';
-
 /**
- * Salva os dados financeiros na nuvem de forma silenciosa e resiliente.
- * Se estiver offline, marca para sincronizar automaticamente assim que a conexão retornar.
+ * Salva os dados financeiros de forma resiliente tanto offline (localStorage + IndexedDB) quanto na nuvem.
+ * Mantém o registro seguro para não perder alterações ao fechar ou reabrir o app sem internet.
  */
 export async function saveFinancialDataToCloud(
   uid: string,
   contas: Conta[],
   logs: LogAtividade[]
 ): Promise<boolean> {
-  // Garante que o estado mais recente fica salvo no localStorage mesmo que a nuvem falhe
+  const now = Date.now();
+
+  // 1. Sempre salva imediatamente no localStorage
   try {
     localStorage.setItem('contas', JSON.stringify(contas));
     localStorage.setItem('logs', JSON.stringify(logs));
+    localStorage.setItem(LAST_LOCAL_UPDATE_KEY, String(now));
+    localStorage.setItem(PENDING_SYNC_KEY, 'true');
+    if (uid) {
+      localStorage.setItem('sutello_last_uid', uid);
+    }
   } catch (e) {
     console.warn('Erro ao salvar cópia local de segurança:', e);
   }
 
-  // Se não houver internet ou se o SDK do Firestore não estiver pronto
-  if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    try {
-      localStorage.setItem(PENDING_SYNC_KEY, 'true');
-    } catch {
-      // Ignora erro de quota do storage
-    }
-    return false;
-  }
-
-  if (!db) {
-    try {
-      localStorage.setItem(PENDING_SYNC_KEY, 'true');
-    } catch {
-      // Ignora erro
-    }
+  // 2. Grava no Firestore (que possui cache persistente local IndexedDB mesmo sem internet)
+  if (!db || !uid) {
     return false;
   }
 
   try {
     const docRef = doc(db, 'dados_financeiros', uid);
-    await setDoc(
-      docRef,
-      {
-        contas,
-        logs,
-        ultimaAtualizacao: new Date().toISOString(),
-      },
-      { merge: true }
-    );
-    // Sucesso no salvamento: remove a flag de pendência
-    try {
-      localStorage.removeItem(PENDING_SYNC_KEY);
-    } catch {
-      // Ignora erro
+    const dataToSave = {
+      contas,
+      logs,
+      ultimaAtualizacao: new Date(now).toISOString(),
+      timestamp: now,
+    };
+
+    // setDoc grava no cache local do Firestore e enfileira para a nuvem
+    const setPromise = setDoc(docRef, dataToSave, { merge: true });
+
+    // Se estiver conectado à internet, aguarda a confirmação de envio para limpar a pendência
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      try {
+        await Promise.race([
+          setPromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000)),
+        ]);
+        // Só remove a flag de pendência se não houve uma alteração mais recente durante a espera
+        const lastUpdate = Number(localStorage.getItem(LAST_LOCAL_UPDATE_KEY) || 0);
+        if (lastUpdate <= now) {
+          localStorage.removeItem(PENDING_SYNC_KEY);
+        }
+        return true;
+      } catch (uploadErr) {
+        console.warn('Envio para nuvem em segundo plano:', uploadErr);
+        return false;
+      }
+    } else {
+      // Offline: setPromise continua em fila e o Firestore enviará assim que reconectar
+      setPromise
+        .then(() => {
+          const lastUpdate = Number(localStorage.getItem(LAST_LOCAL_UPDATE_KEY) || 0);
+          if (lastUpdate <= now) {
+            localStorage.removeItem(PENDING_SYNC_KEY);
+          }
+        })
+        .catch(() => {});
+      return false;
     }
-    return true;
   } catch (error) {
-    console.warn('Falha temporária ao sincronizar com a nuvem, salvando localmente e enfileirando:', error);
-    try {
-      localStorage.setItem(PENDING_SYNC_KEY, 'true');
-    } catch {
-      // Ignora erro
-    }
+    console.warn('Falha temporária ao registrar no Firestore local:', error);
     return false;
   }
 }
@@ -160,21 +190,31 @@ export async function saveFinancialDataToCloud(
  */
 export async function syncPendingDataIfOnline(
   uid: string,
-  contas: Conta[],
-  logs: LogAtividade[],
+  contas?: Conta[],
+  logs?: LogAtividade[],
   onSuccess?: () => void
 ): Promise<boolean> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
-  if (!uid) return false;
+  const targetUid = uid || (typeof localStorage !== 'undefined' ? localStorage.getItem('sutello_last_uid') : null);
+  if (!targetUid) return false;
 
-  const isPending = localStorage.getItem(PENDING_SYNC_KEY) === 'true';
-  // Mesmo que não haja a flag explícita, ao reconectar enviamos o estado atual consolidado
-  const savedContas = localStorage.getItem('contas');
-  const currentContas = savedContas ? JSON.parse(savedContas) : contas;
-  const savedLogs = localStorage.getItem('logs');
-  const currentLogs = savedLogs ? JSON.parse(savedLogs) : logs;
+  // Lê com prioridade absoluta os dados salvos localmente
+  let currentContas = contas;
+  let currentLogs = logs;
 
-  const ok = await saveFinancialDataToCloud(uid, currentContas, currentLogs);
+  try {
+    const savedContas = localStorage.getItem('contas');
+    if (savedContas) currentContas = JSON.parse(savedContas);
+    const savedLogs = localStorage.getItem('logs');
+    if (savedLogs) currentLogs = JSON.parse(savedLogs);
+  } catch (e) {
+    console.warn('Erro ao ler estado do storage local:', e);
+  }
+
+  if (!currentContas) currentContas = [];
+  if (!currentLogs) currentLogs = [];
+
+  const ok = await saveFinancialDataToCloud(targetUid, currentContas, currentLogs);
   if (ok && onSuccess) {
     onSuccess();
   }
