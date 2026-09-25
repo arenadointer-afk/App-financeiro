@@ -300,6 +300,29 @@ export async function notifyNovaConta(conta: Conta, autor?: string): Promise<boo
 }
 
 /**
+ * Dispara notificação no celular quando uma CONTA FOI PAGA (em outro aparelho ou no app)
+ */
+export async function notifyContaPaga(conta: Conta, pagador?: string): Promise<boolean> {
+  const prefs = getNotificationPreferences();
+  if (!prefs.enabled) return false;
+
+  const key = `notif_paga_${conta.id}_${conta.parcelaAtual || 1}`;
+  if (hasBeenNotified(key)) return false;
+
+  const pagadorInfo = pagador && pagador.trim() ? ` por ${pagador}` : '';
+  const sucesso = await sendDeviceNotification('✅ Conta Paga!', {
+    body: `"${conta.nome}" de R$ ${formatCurrency(conta.valor)} foi marcada como paga${pagadorInfo}.`,
+    tag: `paga_${conta.id}`,
+    data: { contaId: conta.id, tipo: 'conta_paga' },
+  });
+
+  if (sucesso) {
+    markAsNotified(key);
+  }
+  return sucesso;
+}
+
+/**
  * Dispara uma notificação de teste imediata para que o usuário sinta a vibração e veja no celular
  */
 export async function triggerTestNotification(): Promise<boolean> {
