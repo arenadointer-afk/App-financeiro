@@ -1,4 +1,4 @@
-const CACHE_NAME = "sutello-financeiro-offline-v5";
+const CACHE_NAME = "sutello-financeiro-offline-v6";
 
 const CORE_ASSETS = [
   "./",
