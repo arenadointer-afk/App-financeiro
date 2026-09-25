@@ -24,6 +24,7 @@ import {
   signOut,
   syncPendingDataIfOnline,
   PENDING_SYNC_KEY,
+  LAST_LOCAL_UPDATE_KEY,
 } from './lib/firebase';
 import {
   notifyContaVencida,
@@ -134,14 +135,41 @@ export default function App() {
     }
   }, [contas]);
 
-  // 1. Monitorar estado de autenticação do Firebase
+  // 1. Monitorar estado de autenticação do Firebase e sincronização de dados
   useEffect(() => {
     const unsubscribe = onAuthStateChangedSafe((user) => {
       setFirebaseUser(user);
       if (user) {
+        localStorage.setItem('sutello_last_uid', user.uid);
         setIsCloudSynced(true);
+
+        // Se houver dados pendentes criados/editados offline, sincroniza com a nuvem ao autenticar
+        const hasPendingSync = localStorage.getItem(PENDING_SYNC_KEY) === 'true';
+        if (hasPendingSync && typeof navigator !== 'undefined' && navigator.onLine) {
+          syncPendingDataIfOnline(user.uid, undefined, undefined, () => {
+            setIsCloudSynced(true);
+            setSyncToastMessage('Alterações offline sincronizadas com a nuvem!');
+            setTimeout(() => setSyncToastMessage(null), 3500);
+          });
+        }
+
         // Sincroniza em tempo real dados da nuvem
-        const unsubData = subscribeToFinancialData(user.uid, (cloudContas, cloudLogs) => {
+        const unsubData = subscribeToFinancialData(user.uid, (cloudContas, cloudLogs, meta) => {
+          const isPending = localStorage.getItem(PENDING_SYNC_KEY) === 'true';
+          const lastLocalTime = Number(localStorage.getItem(LAST_LOCAL_UPDATE_KEY) || 0);
+          const cloudTime = meta?.cloudTimestamp || 0;
+
+          // Se tivermos alterações locais pendentes e elas forem mais recentes que os dados da nuvem:
+          // NUNCA sobrescreve com dados antigos da nuvem!
+          if (isPending && lastLocalTime >= cloudTime) {
+            console.log('Preservando alterações offline locais mais recentes.');
+            if (typeof navigator !== 'undefined' && navigator.onLine) {
+              syncPendingDataIfOnline(user.uid);
+            }
+            return;
+          }
+
+          // Se a nuvem tiver dados válidos e mais recentes
           if (cloudContas && cloudContas.length > 0) {
             // Se já inicializou e chegaram novas contas que não tínhamos, avisa que alguém adicionou nova conta
             if (hasInitializedContasRef.current) {
@@ -158,9 +186,11 @@ export default function App() {
 
             setContas(cloudContas);
             localStorage.setItem('contas', JSON.stringify(cloudContas));
+            localStorage.removeItem(PENDING_SYNC_KEY);
           } else {
             hasInitializedContasRef.current = true;
           }
+
           if (cloudLogs && cloudLogs.length > 0) {
             setLogs(cloudLogs);
             localStorage.setItem('logs', JSON.stringify(cloudLogs));
@@ -198,10 +228,11 @@ export default function App() {
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
-      if (auth?.currentUser) {
-        syncPendingDataIfOnline(auth.currentUser.uid, contas, logs, () => {
+      const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+      if (uid) {
+        syncPendingDataIfOnline(uid, undefined, undefined, () => {
           setIsCloudSynced(true);
-          setSyncToastMessage('Conexão restabelecida! Alterações sincronizadas com a nuvem.');
+          setSyncToastMessage('Conexão restabelecida! Alterações offline sincronizadas com a nuvem.');
           setTimeout(() => setSyncToastMessage(null), 4000);
         });
       } else {
@@ -220,18 +251,21 @@ export default function App() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Se estiver online agora e houver pendências do último acesso offline, envia
-    if (navigator.onLine && auth?.currentUser) {
-      syncPendingDataIfOnline(auth.currentUser.uid, contas, logs, () => {
-        setIsCloudSynced(true);
-      });
+    // Se estiver online no carregamento inicial e houver pendências do último acesso offline, envia
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+      if (uid && localStorage.getItem(PENDING_SYNC_KEY) === 'true') {
+        syncPendingDataIfOnline(uid, undefined, undefined, () => {
+          setIsCloudSynced(true);
+        });
+      }
     }
 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [contas, logs]);
+  }, []);
 
   // 1.2 Monitorar contas vencidas e disparar alertas no celular
   useEffect(() => {
@@ -403,12 +437,8 @@ export default function App() {
     (newContas: Conta[], newLogs: LogAtividade[]) => {
       setContas(newContas);
       setLogs(newLogs);
-      localStorage.setItem('contas', JSON.stringify(newContas));
-      localStorage.setItem('logs', JSON.stringify(newLogs));
-
-      if (auth.currentUser) {
-        saveFinancialDataToCloud(auth.currentUser.uid, newContas, newLogs);
-      }
+      const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+      saveFinancialDataToCloud(uid, newContas, newLogs);
     },
     []
   );
@@ -425,10 +455,9 @@ export default function App() {
           relatedId,
         };
         const updated = [newLog, ...prevLogs.slice(0, 50)];
-        localStorage.setItem('logs', JSON.stringify(updated));
-        if (auth.currentUser) {
-          saveFinancialDataToCloud(auth.currentUser.uid, contas, updated);
-        }
+        const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+        const currentContas = JSON.parse(localStorage.getItem('contas') || '[]');
+        saveFinancialDataToCloud(uid, currentContas.length > 0 ? currentContas : contas, updated);
         return updated;
       });
     },
