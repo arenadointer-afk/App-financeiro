@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Settings, X, Camera, Shield, Download, Upload, LogOut, Key, Check, AlertCircle, Archive, Smartphone, Bell } from 'lucide-react';
+import { Settings, X, Camera, Shield, Download, Upload, LogOut, Key, Check, AlertCircle, Archive, Smartphone, Bell, Cloud, Mail, LogIn, UserPlus } from 'lucide-react';
 import { UserProfile } from '../types';
 import { redimensionarImagem } from '../lib/utils';
-import { updatePassword, signOut, auth } from '../lib/firebase';
+import { updatePassword, signOut, auth, loginWithEmailPassword, registerWithEmailPassword } from '../lib/firebase';
 import {
   getNotificationPreferences,
   saveNotificationPreferences,
@@ -43,6 +43,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default');
   const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>(getNotificationPreferences());
   const [testingNotif, setTestingNotif] = useState(false);
+
+  // Estados de conexão em nuvem para sincronizar múltiplos celulares
+  const [cloudEmail, setCloudEmail] = useState('');
+  const [cloudPassword, setCloudPassword] = useState('');
+  const [cloudLoading, setCloudLoading] = useState(false);
+  const [isCloudRegister, setIsCloudRegister] = useState(false);
+
+  const handleCloudAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cloudEmail.trim() || !cloudPassword) {
+      setStatusMsg({ type: 'error', text: 'Informe e-mail e senha para conectar.' });
+      return;
+    }
+    if (cloudPassword.length < 6) {
+      setStatusMsg({ type: 'error', text: 'A senha precisa ter pelo menos 6 dígitos.' });
+      return;
+    }
+
+    setCloudLoading(true);
+    setStatusMsg(null);
+
+    try {
+      if (isCloudRegister) {
+        await registerWithEmailPassword(cloudEmail.trim(), cloudPassword);
+        setStatusMsg({ type: 'success', text: 'Conta criada e sincronizada com sucesso!' });
+      } else {
+        await loginWithEmailPassword(cloudEmail.trim(), cloudPassword);
+        setStatusMsg({ type: 'success', text: 'Conectado à nuvem! Este celular agora sincroniza em tempo real.' });
+      }
+      setCloudEmail('');
+      setCloudPassword('');
+    } catch (err: any) {
+      console.error(err);
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
+        setStatusMsg({ type: 'error', text: 'E-mail ou senha incorretos. Caso seja sua primeira vez, clique em Criar Conta.' });
+      } else if (err.code === 'auth/user-not-found') {
+        setStatusMsg({ type: 'error', text: 'Conta não encontrada. Alterne para Criar Conta para registrar.' });
+      } else if (err.code === 'auth/email-already-in-use') {
+        setStatusMsg({ type: 'error', text: 'Este e-mail já existe. Escolha "Entrar" com a senha existente.' });
+      } else {
+        setStatusMsg({ type: 'error', text: err.message || 'Falha ao conectar à nuvem.' });
+      }
+    } finally {
+      setCloudLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -280,6 +326,99 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span>{testingNotif ? 'Enviando...' : 'Testar Agora'}</span>
                 </button>
               </div>
+            )}
+          </div>
+
+          {/* Sincronização em Tempo Real entre 2 Celulares */}
+          <div className="p-3.5 bg-gradient-to-br from-purple-900/20 to-neutral-900/60 border border-purple-500/30 rounded-xl space-y-3">
+            <div className="flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-purple-400 shrink-0" />
+              <div>
+                <span className="font-semibold text-white block text-sm">Sincronização em Tempo Real (2 Celulares)</span>
+                <span className="text-[11px] text-neutral-400">
+                  {userEmail
+                    ? 'Conectado! O que você fizer aqui aparece no outro celular instantaneamente.'
+                    : 'Conecte este celular à nuvem para sincronizar com seu outro aparelho.'}
+                </span>
+              </div>
+            </div>
+
+            {userEmail ? (
+              <div className="bg-emerald-500/10 border border-emerald-500/30 p-2.5 rounded-xl space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-emerald-300 font-semibold flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    Conta Conectada
+                  </span>
+                  <span className="text-[11px] font-mono text-emerald-200">{userEmail}</span>
+                </div>
+                <p className="text-[11px] text-neutral-300 leading-relaxed">
+                  📱 Para ver as mesmas contas e receber notificações no outro celular, basta abrir o app nele e entrar com este mesmo e-mail.
+                </p>
+                <div className="pt-1 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await signOut(auth);
+                      window.location.reload();
+                    }}
+                    className="text-[11px] text-red-400 hover:text-red-300 underline"
+                  >
+                    Desconectar desta conta
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleCloudAuth} className="space-y-2 pt-1">
+                <div className="flex bg-white/5 p-1 rounded-lg border border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setIsCloudRegister(false)}
+                    className={`flex-1 py-1 text-xs font-semibold rounded-md transition-all ${
+                      !isCloudRegister ? 'bg-purple-600 text-white' : 'text-neutral-400'
+                    }`}
+                  >
+                    Entrar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsCloudRegister(true)}
+                    className={`flex-1 py-1 text-xs font-semibold rounded-md transition-all ${
+                      isCloudRegister ? 'bg-purple-600 text-white' : 'text-neutral-400'
+                    }`}
+                  >
+                    Criar Conta
+                  </button>
+                </div>
+
+                <input
+                  type="email"
+                  value={cloudEmail}
+                  onChange={(e) => setCloudEmail(e.target.value)}
+                  placeholder="Seu e-mail (ex: seu-nome@gmail.com)"
+                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-purple-500"
+                />
+
+                <input
+                  type="password"
+                  value={cloudPassword}
+                  onChange={(e) => setCloudPassword(e.target.value)}
+                  placeholder="Senha (mínimo 6 dígitos)"
+                  className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-purple-500"
+                />
+
+                <button
+                  type="submit"
+                  disabled={cloudLoading}
+                  className="w-full py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-lg shadow transition-all disabled:opacity-50"
+                >
+                  {cloudLoading
+                    ? 'Conectando...'
+                    : isCloudRegister
+                    ? 'Cadastrar e Conectar Nuvem'
+                    : 'Conectar à Nuvem'}
+                </button>
+              </form>
             )}
           </div>
 

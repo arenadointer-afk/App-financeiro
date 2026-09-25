@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Fingerprint, KeyRound, Mail, Lock, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react';
-import { loginWithEmailPassword } from '../lib/firebase';
+import { Shield, Fingerprint, KeyRound, Mail, Lock, Eye, EyeOff, CheckCircle2, AlertCircle, UserPlus, LogIn } from 'lucide-react';
+import { loginWithEmailPassword, registerWithEmailPassword } from '../lib/firebase';
 
 interface LockScreenProps {
   onUnlock: () => void;
@@ -17,6 +17,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
 }) => {
   // Inicia com PIN por padrão para acesso imediato e confiável
   const [authMode, setAuthMode] = useState<'firebase' | 'pin'>('pin');
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [pinInput, setPinInput] = useState('');
@@ -53,8 +54,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     }
   }, [isFirebaseAuthenticated]);
 
-  // Login com Firebase Email/Senha
-  const handleFirebaseLogin = async (e?: React.FormEvent) => {
+  // Login ou Cadastro com Firebase Email/Senha
+  const handleFirebaseSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       setErrorMessage('Você está sem internet no momento. Alterne para o modo PIN para entrar offline!');
@@ -64,23 +65,35 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       setErrorMessage('Por favor, informe seu e-mail e sua senha.');
       return;
     }
+    if (password.length < 6) {
+      setErrorMessage('A senha precisa ter pelo menos 6 caracteres.');
+      return;
+    }
 
     setLoading(true);
     setErrorMessage(null);
 
     try {
-      await loginWithEmailPassword(email.trim(), password);
+      if (isRegisterMode) {
+        await registerWithEmailPassword(email.trim(), password);
+      } else {
+        await loginWithEmailPassword(email.trim(), password);
+      }
       onUnlock();
     } catch (err: any) {
       console.error(err);
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
-        setErrorMessage('E-mail ou senha incorretos.');
+        setErrorMessage('E-mail ou senha incorretos. Se ainda não possui conta, clique em "Criar Conta" abaixo.');
       } else if (err.code === 'auth/user-not-found') {
-        setErrorMessage('Usuário não encontrado.');
+        setErrorMessage('Usuário não encontrado. Clique em "Criar Conta" para cadastrar agora.');
+      } else if (err.code === 'auth/email-already-in-use') {
+        setErrorMessage('Este e-mail já está cadastrado. Alterne para "Entrar na Conta" ou use sua senha.');
+      } else if (err.code === 'auth/weak-password') {
+        setErrorMessage('A senha é muito fraca. Digite pelo menos 6 caracteres.');
       } else if (err.code === 'auth/too-many-requests') {
         setErrorMessage('Muitas tentativas. Tente novamente mais tarde.');
       } else {
-        setErrorMessage(err.message || 'Falha ao autenticar.');
+        setErrorMessage(err.message || 'Falha na autenticação.');
       }
     } finally {
       setLoading(false);
@@ -197,7 +210,45 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         )}
 
         {authMode === 'firebase' ? (
-          <form onSubmit={handleFirebaseLogin} className="w-full space-y-3">
+          <form onSubmit={handleFirebaseSubmit} className="w-full space-y-3">
+            {/* Abas Entrar / Criar Conta */}
+            <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 mb-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsRegisterMode(false);
+                  setErrorMessage(null);
+                }}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+                  !isRegisterMode
+                    ? 'bg-purple-600 text-white shadow-md shadow-purple-900/30'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                Entrar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsRegisterMode(true);
+                  setErrorMessage(null);
+                }}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all ${
+                  isRegisterMode
+                    ? 'bg-purple-600 text-white shadow-md shadow-purple-900/30'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                Criar Conta
+              </button>
+            </div>
+
+            <div className="text-[11px] text-purple-300/80 bg-purple-900/20 border border-purple-500/20 p-2 rounded-xl text-center">
+              💡 Use o <strong>mesmo e-mail e senha nos dois celulares</strong> para sincronizar contas e alertas em tempo real.
+            </div>
+
             <div>
               <label className="block text-[11px] font-semibold text-neutral-400 uppercase tracking-wider mb-1">
                 E-mail
@@ -216,7 +267,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
 
             <div>
               <label className="block text-[11px] font-semibold text-neutral-400 uppercase tracking-wider mb-1">
-                Senha
+                Senha (mínimo 6 dígitos)
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -242,7 +293,13 @@ export const LockScreen: React.FC<LockScreenProps> = ({
               disabled={loading}
               className="w-full py-3.5 mt-2 bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-semibold text-sm rounded-xl transition-transform duration-75 shadow-lg shadow-purple-600/30 disabled:opacity-50 touch-manipulation"
             >
-              {loading ? 'Entrando...' : 'Entrar com Firebase'}
+              {loading
+                ? isRegisterMode
+                  ? 'Criando Conta...'
+                  : 'Entrando...'
+                : isRegisterMode
+                ? 'Cadastrar e Sincronizar'
+                : 'Entrar e Sincronizar'}
             </button>
 
             {biometricAvailable && (

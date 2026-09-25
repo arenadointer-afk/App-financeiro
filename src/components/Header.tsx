@@ -6,6 +6,7 @@ interface HeaderProps {
   profile: UserProfile;
   isPrivate: boolean;
   isCloudSynced: boolean;
+  userEmail?: string | null;
   unreadNotificationsCount?: number;
   onOpenNotifications?: () => void;
   onTogglePrivacy: () => void;
@@ -17,6 +18,7 @@ export const Header: React.FC<HeaderProps> = React.memo(({
   profile,
   isPrivate,
   isCloudSynced,
+  userEmail,
   unreadNotificationsCount = 0,
   onOpenNotifications,
   onTogglePrivacy,
@@ -57,13 +59,18 @@ export const Header: React.FC<HeaderProps> = React.memo(({
             </h2>
           </div>
           <p className="text-[11px] text-neutral-400 flex items-center gap-1">
-            {isCloudSynced ? (
+            {isCloudSynced && userEmail ? (
+              <span className="text-emerald-400 flex items-center gap-1 text-[10px] font-medium" title={`Sincronizado via ${userEmail}`}>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Nuvem ativa ({userEmail.split('@')[0]})
+              </span>
+            ) : isCloudSynced ? (
               <span className="text-emerald-400/90 flex items-center gap-1 text-[10px]">
                 ● Nuvem ativa
               </span>
             ) : (
-              <span className="text-amber-400/90 flex items-center gap-1 text-[10px]">
-                ○ Modo local
+              <span className="text-amber-400 flex items-center gap-1 text-[10px] hover:underline" title="Clique para sincronizar com outro celular">
+                ○ Conectar nuvem (2 celulares)
               </span>
             )}
           </p>
