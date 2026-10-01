@@ -4,6 +4,8 @@ import { formatCurrency, isoParaBR } from './utils';
 export interface NotificationPreferences {
   enabled: boolean;
   contasVencidas: boolean;
+  contasVenceHoje: boolean;
+  contasPagas: boolean;
   parcelasQuitadas: boolean;
   novasContas: boolean;
   somVibracao: boolean;
@@ -15,6 +17,8 @@ const NOTIFIED_KEYS_STORAGE = 'sutello_device_notified_keys';
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   enabled: false,
   contasVencidas: true,
+  contasVenceHoje: true,
+  contasPagas: true,
   parcelasQuitadas: true,
   novasContas: true,
   somVibracao: true,
@@ -169,6 +173,7 @@ function markAsNotified(key: string) {
 
 /**
  * Envia uma notificação nativa para o celular / navegador via Service Worker
+ * e também projeta na tela (Heads-up banner) para máxima visibilidade
  */
 export async function sendDeviceNotification(
   title: string,
@@ -182,31 +187,59 @@ export async function sendDeviceNotification(
 ): Promise<boolean> {
   const prefs = getNotificationPreferences();
   if (!prefs.enabled) return false;
-  if (!isNotificationSupported()) return false;
-  if (Notification.permission !== 'granted') return false;
 
   // Vibração e som suave se habilitados nas preferências
   if (prefs.somVibracao) {
-    triggerVibration([200, 100, 200]);
+    triggerVibration([250, 100, 250, 100, 250]);
     playNotificationChime();
   }
+
+  // 1. Dispara o banner visual flutuante NA TELA (Heads-Up Banner)
+  // Isso garante que mesmo com o app aberto ou na tela de bloqueio, o usuário enxergue na hora!
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(
+        new CustomEvent('sutello_heads_up_notification', {
+          detail: {
+            id: `banner_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            title,
+            body: options.body,
+            tag: options.tag,
+            tipo: options.data?.tipo || 'info',
+            contaId: options.data?.contaId,
+            timestamp: Date.now(),
+          },
+        })
+      );
+    } catch {
+      // Ignora erro se evento falhar
+    }
+  }
+
+  if (!isNotificationSupported()) return true; // Já exibiu na tela
+  if (Notification.permission !== 'granted') return true;
 
   const notificationOptions = {
     body: options.body,
     icon: options.icon || './icon-192.png',
     badge: './icon-192.png',
     tag: options.tag || `sutello_${Date.now()}`,
-    vibrate: [200, 100, 200],
+    vibrate: [250, 100, 250, 100, 250],
+    renotify: true,
     requireInteraction: options.requireInteraction || false,
+    silent: false,
     data: {
       url: './',
       timestamp: Date.now(),
       ...(options.data || {}),
     },
+    actions: [
+      { action: 'open', title: 'Abrir' }
+    ]
   };
 
   try {
-    // 1. Tenta disparar através do Service Worker ativo (melhor suporte no Android e iOS PWA)
+    // 2. Dispara através do Service Worker ativo (aparece na barra e na tela de bloqueio do celular)
     if ('serviceWorker' in navigator) {
       const reg = await navigator.serviceWorker.ready;
       if (reg && 'showNotification' in reg) {
@@ -215,7 +248,7 @@ export async function sendDeviceNotification(
       }
     }
 
-    // 2. Fallback para Notification API padrão do navegador
+    // Fallback para Notification API padrão do navegador
     new Notification(title, notificationOptions as any);
     return true;
   } catch (error) {
@@ -224,13 +257,14 @@ export async function sendDeviceNotification(
       new Notification(title, notificationOptions as any);
       return true;
     } catch {
-      return false;
+      return true; // Banner na tela já funcionou
     }
   }
 }
 
 /**
  * Dispara notificação no celular quando uma CONTA VENCEU (Atrasada)
+ * Formato super otimizado que exibe tudo no título sem precisar expandir
  */
 export async function notifyContaVencida(conta: Conta, diasAtraso: number): Promise<boolean> {
   const prefs = getNotificationPreferences();
@@ -239,11 +273,33 @@ export async function notifyContaVencida(conta: Conta, diasAtraso: number): Prom
   const key = `notif_vencida_${conta.id}_${conta.vencimento}`;
   if (hasBeenNotified(key)) return false;
 
-  const textoAtraso = diasAtraso === 1 ? 'venceu ontem' : `está vencida há ${diasAtraso} dias`;
-  const sucesso = await sendDeviceNotification('⚠️ Conta Vencida!', {
-    body: `A conta "${conta.nome}" ${textoAtraso} (${isoParaBR(conta.vencimento)}) no valor de R$ ${formatCurrency(conta.valor)}. Toque para conferir!`,
+  const textoAtraso = diasAtraso === 1 ? 'venceu ontem' : `venceu há ${diasAtraso} dias`;
+  const sucesso = await sendDeviceNotification(`⚠️ VENCEU: ${conta.nome} • R$ ${formatCurrency(conta.valor)}`, {
+    body: `Vencimento: ${isoParaBR(conta.vencimento)} • ${textoAtraso}`,
     tag: `vencida_${conta.id}`,
     data: { contaId: conta.id, tipo: 'atrasada' },
+  });
+
+  if (sucesso) {
+    markAsNotified(key);
+  }
+  return sucesso;
+}
+
+/**
+ * Dispara notificação no celular quando uma CONTA VENCE HOJE
+ */
+export async function notifyContaVenceHoje(conta: Conta): Promise<boolean> {
+  const prefs = getNotificationPreferences();
+  if (!prefs.contasVenceHoje || !prefs.enabled) return false;
+
+  const key = `notif_hoje_${conta.id}_${conta.vencimento}`;
+  if (hasBeenNotified(key)) return false;
+
+  const sucesso = await sendDeviceNotification(`⏰ VENCE HOJE: ${conta.nome} • R$ ${formatCurrency(conta.valor)}`, {
+    body: `Vencimento hoje (${isoParaBR(conta.vencimento)}) • Toque para ver ou marcar como paga`,
+    tag: `hoje_${conta.id}`,
+    data: { contaId: conta.id, tipo: 'hoje' },
   });
 
   if (sucesso) {
@@ -263,8 +319,8 @@ export async function notifyParcelasConcluidas(conta: Conta): Promise<boolean> {
   const key = `notif_quitada_${conta.id}_${total}`;
   if (hasBeenNotified(key)) return false;
 
-  const sucesso = await sendDeviceNotification('🎉 Todas as parcelas quitadas!', {
-    body: `Parabéns! A conta "${conta.nome}" teve todas as ${total} parcelas pagas com sucesso! Mais uma dívida zerada.`,
+  const sucesso = await sendDeviceNotification(`🎉 QUITADA: ${conta.nome} • 100% Paga!`, {
+    body: `Todas as ${total} parcelas foram quitadas com sucesso!`,
     tag: `quitada_${conta.id}`,
     data: { contaId: conta.id, tipo: 'parcela_quitada' },
   });
@@ -285,10 +341,10 @@ export async function notifyNovaConta(conta: Conta, autor?: string): Promise<boo
   const key = `notif_nova_conta_${conta.id}`;
   if (hasBeenNotified(key)) return false;
 
-  const autorInfo = autor && autor.trim() ? ` por ${autor}` : '';
-  const parcelasInfo = conta.totalParcelas && conta.totalParcelas > 1 ? ` em ${conta.totalParcelas}x` : '';
-  const sucesso = await sendDeviceNotification('🔔 Nova conta adicionada!', {
-    body: `"${conta.nome}" de R$ ${formatCurrency(conta.valor)}${parcelasInfo} foi cadastrada${autorInfo}. Vencimento: ${isoParaBR(conta.vencimento)}.`,
+  const autorInfo = autor && autor.trim() ? ` • Por ${autor}` : '';
+  const parcelasInfo = conta.totalParcelas && conta.totalParcelas > 1 ? ` (${conta.totalParcelas}x)` : '';
+  const sucesso = await sendDeviceNotification(`🔔 NOVA CONTA: ${conta.nome} • R$ ${formatCurrency(conta.valor)}`, {
+    body: `Vencimento: ${isoParaBR(conta.vencimento)}${parcelasInfo}${autorInfo}`,
     tag: `nova_${conta.id}`,
     data: { contaId: conta.id, tipo: 'nova_conta' },
   });
@@ -304,14 +360,15 @@ export async function notifyNovaConta(conta: Conta, autor?: string): Promise<boo
  */
 export async function notifyContaPaga(conta: Conta, pagador?: string): Promise<boolean> {
   const prefs = getNotificationPreferences();
-  if (!prefs.enabled) return false;
+  if (!prefs.contasPagas || !prefs.enabled) return false;
 
   const key = `notif_paga_${conta.id}_${conta.parcelaAtual || 1}`;
   if (hasBeenNotified(key)) return false;
 
   const pagadorInfo = pagador && pagador.trim() ? ` por ${pagador}` : '';
-  const sucesso = await sendDeviceNotification('✅ Conta Paga!', {
-    body: `"${conta.nome}" de R$ ${formatCurrency(conta.valor)} foi marcada como paga${pagadorInfo}.`,
+  const parcelasInfo = conta.totalParcelas && conta.totalParcelas > 1 ? ` • Parcela ${conta.parcelaAtual || 1}/${conta.totalParcelas}` : '';
+  const sucesso = await sendDeviceNotification(`✅ PAGA: ${conta.nome} • R$ ${formatCurrency(conta.valor)}`, {
+    body: `Marcada como paga${pagadorInfo}${parcelasInfo}`,
     tag: `paga_${conta.id}`,
     data: { contaId: conta.id, tipo: 'conta_paga' },
   });
@@ -326,8 +383,8 @@ export async function notifyContaPaga(conta: Conta, pagador?: string): Promise<b
  * Dispara uma notificação de teste imediata para que o usuário sinta a vibração e veja no celular
  */
 export async function triggerTestNotification(): Promise<boolean> {
-  return sendDeviceNotification('🔔 Sutello Financeiro', {
-    body: 'Notificações no celular ativadas com sucesso! Você receberá avisos de contas vencidas, parcelas concluídas e novas contas.',
+  return sendDeviceNotification('🔔 Sutello Financeiro • Alertas Ativos!', {
+    body: 'Notificações na tela, na barra e na tela de bloqueio ativadas com som e vibração.',
     tag: `teste_${Date.now()}`,
     data: { tipo: 'teste' },
   });

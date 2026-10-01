@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
   signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
   User,
@@ -14,6 +15,8 @@ import {
   getFirestore,
   doc,
   setDoc,
+  getDoc,
+  getDocFromServer,
   onSnapshot,
 } from 'firebase/firestore';
 import { Conta, LogAtividade, UserProfile } from '../types';
@@ -36,8 +39,9 @@ try {
   app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
   authInstance = getAuth(app);
   try {
-    // Configura persistência local em IndexedDB no Firestore para permitir abrir e operar offline
+    // Configura persistência local em IndexedDB no Firestore e ignora propriedades undefined para nunca falhar no setDoc
     dbInstance = initializeFirestore(app, {
+      ignoreUndefinedProperties: true,
       localCache: persistentLocalCache({
         tabManager: persistentMultipleTabManager(),
       }),
@@ -56,10 +60,40 @@ export const db = dbInstance;
 export const PENDING_SYNC_KEY = 'sutello_pending_cloud_sync';
 export const LAST_LOCAL_UPDATE_KEY = 'sutello_last_local_update_time';
 
+/**
+ * Remove campos undefined de arrays/objetos antes de gravar no Firestore
+ */
+function sanitizeForFirestore<T>(data: T): T {
+  try {
+    return JSON.parse(JSON.stringify(data));
+  } catch {
+    return data;
+  }
+}
+
+/**
+ * Retorna o ID único deste dispositivo para evitar eco/conflito de sincronização
+ */
+export function getDeviceId(): string {
+  if (typeof window === 'undefined') return 'server';
+  try {
+    let id = localStorage.getItem('sutello_device_id');
+    if (!id) {
+      id = 'dev_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now().toString(36);
+      localStorage.setItem('sutello_device_id', id);
+    }
+    return id;
+  } catch {
+    return 'temp_device';
+  }
+}
+
 export interface SnapshotMetadataInfo {
   hasPendingWrites: boolean;
   fromCache: boolean;
   cloudTimestamp: number;
+  updatedByDeviceId?: string;
+  actionType?: string;
 }
 
 /**
@@ -70,7 +104,7 @@ export function subscribeToFinancialData(
   onData: (contas: Conta[], logs: LogAtividade[], meta?: SnapshotMetadataInfo) => void,
   onError?: (err: unknown) => void
 ) {
-  if (!db) {
+  if (!db || !uid) {
     onData([], [], { hasPendingWrites: false, fromCache: false, cloudTimestamp: 0 });
     return () => {};
   }
@@ -89,6 +123,8 @@ export function subscribeToFinancialData(
             hasPendingWrites: snapshot.metadata.hasPendingWrites,
             fromCache: snapshot.metadata.fromCache,
             cloudTimestamp,
+            updatedByDeviceId: data.updatedByDeviceId,
+            actionType: data.actionType,
           });
         } else {
           onData([], [], {
@@ -110,22 +146,68 @@ export function subscribeToFinancialData(
 }
 
 /**
+ * Busca imediatamente os dados mais recentes direto do servidor na nuvem
+ * (ideal quando o usuário abre ou alterna para o celular/notebook/computador)
+ */
+export async function fetchFinancialDataFromCloud(
+  uid: string
+): Promise<{ contas: Conta[]; logs: LogAtividade[]; timestamp: number; exists: boolean } | null> {
+  if (!db || !uid) return null;
+  try {
+    const docRef = doc(db, 'dados_financeiros', uid);
+    let snapshot;
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      try {
+        snapshot = await getDocFromServer(docRef);
+      } catch {
+        snapshot = await getDoc(docRef);
+      }
+    } else {
+      snapshot = await getDoc(docRef);
+    }
+
+    if (snapshot.exists()) {
+      const data = snapshot.data();
+      const cloudTimestamp =
+        typeof data.timestamp === 'number'
+          ? data.timestamp
+          : data.ultimaAtualizacao
+          ? new Date(data.ultimaAtualizacao).getTime()
+          : 0;
+      return {
+        contas: data.contas || [],
+        logs: data.logs || [],
+        timestamp: cloudTimestamp,
+        exists: true,
+      };
+    }
+    return { contas: [], logs: [], timestamp: 0, exists: false };
+  } catch (err) {
+    console.warn('Erro ao buscar dados recentes da nuvem:', err);
+    return null;
+  }
+}
+
+/**
  * Salva os dados financeiros de forma resiliente tanto offline (localStorage + IndexedDB) quanto na nuvem.
- * Mantém o registro seguro para não perder alterações ao fechar ou reabrir o app sem internet.
+ * Transmite o ID do dispositivo para que todos os aparelhos conectados à mesma conta recebam imediatamente a atualização.
  */
 export async function saveFinancialDataToCloud(
   uid: string,
   contas: Conta[],
-  logs: LogAtividade[]
+  logs: LogAtividade[],
+  actionType: string = 'update'
 ): Promise<boolean> {
   const now = Date.now();
+  const deviceId = getDeviceId();
+  const safeContas = sanitizeForFirestore(contas || []);
+  const safeLogs = sanitizeForFirestore(logs || []);
 
-  // 1. Sempre salva imediatamente no localStorage
+  // 1. Sempre salva imediatamente no localStorage para abertura instantânea e modo offline
   try {
-    localStorage.setItem('contas', JSON.stringify(contas));
-    localStorage.setItem('logs', JSON.stringify(logs));
+    localStorage.setItem('contas', JSON.stringify(safeContas));
+    localStorage.setItem('logs', JSON.stringify(safeLogs));
     localStorage.setItem(LAST_LOCAL_UPDATE_KEY, String(now));
-    localStorage.setItem(PENDING_SYNC_KEY, 'true');
     if (uid) {
       localStorage.setItem('sutello_last_uid', uid);
     }
@@ -133,54 +215,44 @@ export async function saveFinancialDataToCloud(
     console.warn('Erro ao salvar cópia local de segurança:', e);
   }
 
-  // 2. Grava no Firestore (que possui cache persistente local IndexedDB mesmo sem internet)
+  // 2. Se não houver banco ou usuário autenticado, deixa pendente para enviar assim que logar
   if (!db || !uid) {
+    try {
+      localStorage.setItem(PENDING_SYNC_KEY, 'true');
+    } catch {}
     return false;
   }
 
   try {
     const docRef = doc(db, 'dados_financeiros', uid);
     const dataToSave = {
-      contas,
-      logs,
+      contas: safeContas,
+      logs: safeLogs,
       ultimaAtualizacao: new Date(now).toISOString(),
       timestamp: now,
+      updatedByDeviceId: deviceId,
+      actionType,
     };
 
-    // setDoc grava no cache local do Firestore e enfileira para a nuvem
-    const setPromise = setDoc(docRef, dataToSave, { merge: true });
-
-    // Se estiver conectado à internet, aguarda a confirmação de envio para limpar a pendência
     if (typeof navigator !== 'undefined' && navigator.onLine) {
+      await setDoc(docRef, dataToSave, { merge: true });
       try {
-        await Promise.race([
-          setPromise,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000)),
-        ]);
-        // Só remove a flag de pendência se não houve uma alteração mais recente durante a espera
-        const lastUpdate = Number(localStorage.getItem(LAST_LOCAL_UPDATE_KEY) || 0);
-        if (lastUpdate <= now) {
-          localStorage.removeItem(PENDING_SYNC_KEY);
-        }
-        return true;
-      } catch (uploadErr) {
-        console.warn('Envio para nuvem em segundo plano:', uploadErr);
-        return false;
-      }
+        localStorage.removeItem(PENDING_SYNC_KEY);
+      } catch {}
+      return true;
     } else {
-      // Offline: setPromise continua em fila e o Firestore enviará assim que reconectar
-      setPromise
-        .then(() => {
-          const lastUpdate = Number(localStorage.getItem(LAST_LOCAL_UPDATE_KEY) || 0);
-          if (lastUpdate <= now) {
-            localStorage.removeItem(PENDING_SYNC_KEY);
-          }
-        })
-        .catch(() => {});
+      // Modo offline: setDoc grava na persistência local IndexedDB do Firestore e envia quando reconectar
+      setDoc(docRef, dataToSave, { merge: true }).catch(() => {});
+      try {
+        localStorage.setItem(PENDING_SYNC_KEY, 'true');
+      } catch {}
       return false;
     }
   } catch (error) {
-    console.warn('Falha temporária ao registrar no Firestore local:', error);
+    console.warn('Falha temporária ao registrar no Firestore:', error);
+    try {
+      localStorage.setItem(PENDING_SYNC_KEY, 'true');
+    } catch {}
     return false;
   }
 }
@@ -198,7 +270,6 @@ export async function syncPendingDataIfOnline(
   const targetUid = uid || (typeof localStorage !== 'undefined' ? localStorage.getItem('sutello_last_uid') : null);
   if (!targetUid) return false;
 
-  // Lê com prioridade absoluta os dados salvos localmente
   let currentContas = contas;
   let currentLogs = logs;
 
@@ -214,7 +285,7 @@ export async function syncPendingDataIfOnline(
   if (!currentContas) currentContas = [];
   if (!currentLogs) currentLogs = [];
 
-  const ok = await saveFinancialDataToCloud(targetUid, currentContas, currentLogs);
+  const ok = await saveFinancialDataToCloud(targetUid, currentContas, currentLogs, 'sync_offline');
   if (ok && onSuccess) {
     onSuccess();
   }
@@ -296,11 +367,19 @@ export async function loginWithEmailPassword(email: string, pass: string) {
   if (!auth) {
     throw new Error('Firebase Auth não inicializado. Verifique suas credenciais.');
   }
-  return signInWithEmailAndPassword(auth, email, pass);
+  return signInWithEmailAndPassword(auth, email.trim().toLowerCase(), pass);
+}
+
+export async function registerWithEmailPassword(email: string, pass: string) {
+  if (!auth) {
+    throw new Error('Firebase Auth não inicializado. Verifique suas credenciais.');
+  }
+  return createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), pass);
 }
 
 export {
   signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
   updatePassword,
