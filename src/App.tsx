@@ -3,6 +3,8 @@ import {
   Search,
   Filter,
   Plus,
+  Eye,
+  EyeOff,
   RefreshCw,
   TrendingUp,
   History,
@@ -18,6 +20,7 @@ import {
   auth,
   onAuthStateChangedSafe,
   subscribeToFinancialData,
+  fetchFinancialDataFromCloud,
   saveFinancialDataToCloud,
   subscribeToUserProfile,
   saveUserProfileToCloud,
@@ -29,6 +32,7 @@ import {
 } from './lib/firebase';
 import {
   notifyContaVencida,
+  notifyContaVenceHoje,
   notifyParcelasConcluidas,
   notifyNovaConta,
   notifyContaPaga,
@@ -38,6 +42,7 @@ import { Header } from './components/Header';
 import { MonthGroup } from './components/MonthGroup';
 import { BottomNav } from './components/BottomNav';
 import { LockScreen } from './components/LockScreen';
+import { HeadsUpNotification } from './components/HeadsUpNotification';
 import { AddEditModal } from './components/AddEditModal';
 import { PaymentModal } from './components/PaymentModal';
 import { SecurityChallengeModal } from './components/SecurityChallengeModal';
@@ -127,17 +132,99 @@ export default function App() {
     }
   });
 
-  // Rastreamento de contas conhecidas para detectar quando outra pessoa adicionar uma nova conta em tempo real
+  // Rastreamento de contas conhecidas para detectar quando outro aparelho adicionar uma nova conta em tempo real
   const knownContaIdsRef = useRef<Set<string | number>>(new Set());
   const hasInitializedContasRef = useRef<boolean>(false);
+  const contasRef = useRef<Conta[]>(contas);
+  const logsRef = useRef<LogAtividade[]>(logs);
 
   useEffect(() => {
+    contasRef.current = contas;
     if (contas && contas.length > 0 && knownContaIdsRef.current.size === 0) {
       contas.forEach((c) => knownContaIdsRef.current.add(c.id));
     }
   }, [contas]);
 
-  // 1. Monitorar estado de autenticação do Firebase e sincronização de dados
+  useEffect(() => {
+    logsRef.current = logs;
+  }, [logs]);
+
+  // Função central para aplicar ou conciliar dados da nuvem em todos os aparelhos (celular, notebook, PC)
+  const reconcileCloudData = useCallback(
+    (
+      uid: string,
+      cloudContas: Conta[] | undefined,
+      cloudLogs: LogAtividade[] | undefined,
+      cloudTimestamp: number,
+      isFromOtherDevice: boolean,
+      cloudExists: boolean = true
+    ) => {
+      const hasPendingSync = localStorage.getItem(PENDING_SYNC_KEY) === 'true';
+      const lastLocalUpdate = Number(localStorage.getItem(LAST_LOCAL_UPDATE_KEY) || '0');
+
+      // Caso este aparelho (ex: notebook) tenha feito alterações locais mais recentes que ainda não subiram para a nuvem:
+      if (hasPendingSync && lastLocalUpdate > cloudTimestamp && contasRef.current.length > 0) {
+        saveFinancialDataToCloud(uid, contasRef.current, logsRef.current, 'sync_pending').then((ok) => {
+          if (ok) {
+            setIsCloudSynced(true);
+            setSyncToastMessage('☁️ Alterações sincronizadas com todos os seus aparelhos!');
+            setTimeout(() => setSyncToastMessage(null), 3500);
+          }
+        });
+        return;
+      }
+
+      // Caso a conta na nuvem ainda esteja vazia e este aparelho já possua contas salvas localmente:
+      if ((!cloudExists || (cloudTimestamp === 0 && (!cloudContas || cloudContas.length === 0))) && contasRef.current.length > 0) {
+        saveFinancialDataToCloud(uid, contasRef.current, logsRef.current, 'initial_upload').then((ok) => {
+          if (ok) setIsCloudSynced(true);
+        });
+        return;
+      }
+
+      if (cloudContas !== undefined) {
+        if (hasInitializedContasRef.current && isFromOtherDevice) {
+          // 1. Notifica novas contas adicionadas em outro aparelho (notebook, celular, etc.)
+          const recemAdicionadas = cloudContas.filter((c) => !knownContaIdsRef.current.has(c.id));
+          recemAdicionadas.forEach((nova) => {
+            notifyNovaConta(nova, nova.pagador || 'Outro aparelho');
+          });
+
+          // 2. Notifica contas marcadas como pagas em outro aparelho
+          cloudContas.forEach((nova) => {
+            const anterior = contasRef.current.find((ant) => ant.id === nova.id);
+            if (anterior && !anterior.paga && nova.paga) {
+              notifyContaPaga(nova, nova.pagador || 'Outro aparelho');
+            }
+          });
+
+          setSyncToastMessage('🔄 Sincronizado em tempo real com outro aparelho!');
+          setTimeout(() => setSyncToastMessage(null), 3500);
+        } else {
+          hasInitializedContasRef.current = true;
+        }
+
+        cloudContas.forEach((c) => knownContaIdsRef.current.add(c.id));
+
+        contasRef.current = cloudContas;
+        setContas(cloudContas);
+        localStorage.setItem('contas', JSON.stringify(cloudContas));
+        if (cloudTimestamp > 0) {
+          localStorage.setItem(LAST_LOCAL_UPDATE_KEY, String(cloudTimestamp));
+        }
+        localStorage.removeItem(PENDING_SYNC_KEY);
+      }
+
+      if (cloudLogs !== undefined) {
+        logsRef.current = cloudLogs;
+        setLogs(cloudLogs);
+        localStorage.setItem('logs', JSON.stringify(cloudLogs));
+      }
+    },
+    []
+  );
+
+  // 1. Monitorar estado de autenticação do Firebase e sincronização em tempo real entre todos os aparelhos
   useEffect(() => {
     const unsubscribe = onAuthStateChangedSafe((user) => {
       setFirebaseUser(user);
@@ -145,62 +232,31 @@ export default function App() {
         localStorage.setItem('sutello_last_uid', user.uid);
         setIsCloudSynced(true);
 
-        // Se houver dados pendentes criados/editados offline, sincroniza com a nuvem ao autenticar
-        const hasPendingSync = localStorage.getItem(PENDING_SYNC_KEY) === 'true';
-        if (hasPendingSync && typeof navigator !== 'undefined' && navigator.onLine) {
-          syncPendingDataIfOnline(user.uid, undefined, undefined, () => {
-            setIsCloudSynced(true);
-            setSyncToastMessage('Alterações offline sincronizadas com a nuvem!');
-            setTimeout(() => setSyncToastMessage(null), 3500);
-          });
-        }
+        // Busca imediata do servidor ao autenticar para garantir os dados mais recentes
+        fetchFinancialDataFromCloud(user.uid).then((res) => {
+          if (res) {
+            reconcileCloudData(user.uid, res.contas, res.logs, res.timestamp, false, res.exists);
+          }
+        });
 
-        // Sincroniza em tempo real dados da nuvem entre dispositivos
+        // Sincroniza em tempo real dados da nuvem entre todos os aparelhos (celular, notebook, PC)
         const unsubData = subscribeToFinancialData(user.uid, (cloudContas, cloudLogs, meta) => {
           const myDeviceId = getDeviceId();
-          const isFromOtherDevice = meta?.updatedByDeviceId && meta.updatedByDeviceId !== myDeviceId;
+          const isFromOtherDevice = !!(meta?.updatedByDeviceId && meta.updatedByDeviceId !== myDeviceId);
 
           // Se for uma escrita pendente local deste mesmo aparelho, não precisa reprocessar
           if (meta?.hasPendingWrites && !isFromOtherDevice) {
             return;
           }
 
-          if (cloudContas !== undefined) {
-            // Se veio do outro celular em tempo real:
-            if (hasInitializedContasRef.current && isFromOtherDevice) {
-              // 1. Notifica novas contas adicionadas no outro celular
-              const recemAdicionadas = cloudContas.filter(
-                (c) => !knownContaIdsRef.current.has(c.id)
-              );
-              recemAdicionadas.forEach((nova) => {
-                notifyNovaConta(nova, nova.pagador || 'Outro celular');
-              });
-
-              // 2. Notifica contas marcadas como pagas no outro celular
-              cloudContas.forEach((nova) => {
-                const anterior = contas.find((ant) => ant.id === nova.id);
-                if (anterior && !anterior.paga && nova.paga) {
-                  notifyContaPaga(nova, nova.pagador || 'Outro celular');
-                }
-              });
-
-              setSyncToastMessage('📱 Atualização recebida do outro celular em tempo real!');
-              setTimeout(() => setSyncToastMessage(null), 3500);
-            } else {
-              hasInitializedContasRef.current = true;
-            }
-
-            cloudContas.forEach((c) => knownContaIdsRef.current.add(c.id));
-
-            setContas(cloudContas);
-            localStorage.setItem('contas', JSON.stringify(cloudContas));
-            localStorage.removeItem(PENDING_SYNC_KEY);
-          }
-
-          if (cloudLogs && cloudLogs.length > 0) {
-            setLogs(cloudLogs);
-            localStorage.setItem('logs', JSON.stringify(cloudLogs));
-          }
+          reconcileCloudData(
+            user.uid,
+            cloudContas,
+            cloudLogs,
+            meta?.cloudTimestamp || 0,
+            isFromOtherDevice,
+            (meta?.cloudTimestamp || 0) > 0 || (cloudContas && cloudContas.length > 0)
+          );
         });
 
         // Sincroniza em tempo real perfil da nuvem
@@ -228,7 +284,31 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [reconcileCloudData]);
+
+  // 1.05 Atualizar automaticamente ao focar/abrir o app no celular ou notebook (como rede social)
+  useEffect(() => {
+    const checkCloudOnFocus = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      const uid = auth?.currentUser?.uid;
+      if (!uid || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+
+      fetchFinancialDataFromCloud(uid).then((res) => {
+        if (res) {
+          const lastLocalUpdate = Number(localStorage.getItem(LAST_LOCAL_UPDATE_KEY) || '0');
+          const isNewerOnCloud = res.timestamp > lastLocalUpdate;
+          reconcileCloudData(uid, res.contas, res.logs, res.timestamp, isNewerOnCloud, res.exists);
+        }
+      });
+    };
+
+    window.addEventListener('focus', checkCloudOnFocus);
+    document.addEventListener('visibilitychange', checkCloudOnFocus);
+    return () => {
+      window.removeEventListener('focus', checkCloudOnFocus);
+      document.removeEventListener('visibilitychange', checkCloudOnFocus);
+    };
+  }, [reconcileCloudData]);
 
   // 1.1 Monitorar conexão de rede e enviar todas as mudanças feitas offline assim que a internet voltar
   useEffect(() => {
@@ -273,7 +353,7 @@ export default function App() {
     };
   }, []);
 
-  // 1.2 Monitorar contas vencidas e disparar alertas no celular
+  // 1.2 Monitorar contas vencidas e que vencem hoje e disparar alertas no celular
   useEffect(() => {
     if (!contas || contas.length === 0) return;
     const hojeStr = new Date().toISOString().split('T')[0];
@@ -288,6 +368,8 @@ export default function App() {
       if (diffDays < 0) {
         const diasAtraso = Math.abs(diffDays);
         notifyContaVencida(conta, diasAtraso);
+      } else if (diffDays === 0) {
+        notifyContaVenceHoje(conta);
       }
     });
   }, [contas]);
@@ -407,6 +489,23 @@ export default function App() {
           totalParcelas: conta.totalParcelas,
         });
       }
+
+      // 4. Contas marcadas como pagas hoje (inclusive pelo outro celular)
+      if (conta.paga && conta.dataPagamento) {
+        const hojeIso = new Date().toISOString().split('T')[0];
+        if (conta.dataPagamento.startsWith(hojeIso)) {
+          alerts.push({
+            id: `paga_${conta.id}_${conta.dataPagamento}`,
+            tipo: 'conta_paga',
+            titulo: 'Conta Paga Hoje',
+            mensagem: `${conta.nome} • R$ ${formatCurrency(conta.valor)} (Marcada como paga${conta.pagador ? ` por ${conta.pagador}` : ''})`,
+            contaId: conta.id,
+            valor: conta.valor,
+            vencimento: conta.vencimento,
+            urgencia: 'baixa',
+          });
+        }
+      }
     });
 
     return alerts;
@@ -438,36 +537,38 @@ export default function App() {
   }, [rawNotifications]);
 
 
-  // 2. Persistir localmente e na nuvem
-  const saveData = useCallback(
-    (newContas: Conta[], newLogs: LogAtividade[]) => {
-      setContas(newContas);
-      setLogs(newLogs);
-      const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
-      saveFinancialDataToCloud(uid, newContas, newLogs);
+  // 2. Persistir localmente e na nuvem de forma atômica (sem risco de sobrescrita ou valores undefined)
+  const addLog = useCallback(
+    (acao: LogAtividade['acao'], detalhe: string, backup?: Conta | null, relatedId?: string | number | null) => {
+      const newLog: LogAtividade = {
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        data: new Date().toISOString(),
+        acao,
+        detalhe,
+        backup: backup ? JSON.parse(JSON.stringify(backup)) : null,
+        relatedId: relatedId ?? null,
+      };
+      const updated = [newLog, ...logsRef.current.slice(0, 50)];
+      logsRef.current = updated;
+      setLogs(updated);
+      return updated;
     },
     []
   );
 
-  const addLog = useCallback(
-    (acao: LogAtividade['acao'], detalhe: string, backup?: Conta | null, relatedId?: string | number | null) => {
-      setLogs((prevLogs) => {
-        const newLog: LogAtividade = {
-          id: Date.now() + Math.floor(Math.random() * 1000),
-          data: new Date().toISOString(),
-          acao,
-          detalhe,
-          backup: backup ? JSON.parse(JSON.stringify(backup)) : null,
-          relatedId,
-        };
-        const updated = [newLog, ...prevLogs.slice(0, 50)];
-        const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
-        const currentContas = JSON.parse(localStorage.getItem('contas') || '[]');
-        saveFinancialDataToCloud(uid, currentContas.length > 0 ? currentContas : contas, updated);
-        return updated;
+  const saveData = useCallback(
+    (newContas: Conta[], explicitLogs?: LogAtividade[]) => {
+      const finalLogs = explicitLogs !== undefined ? explicitLogs : logsRef.current;
+      contasRef.current = newContas;
+      logsRef.current = finalLogs;
+      setContas(newContas);
+      setLogs(finalLogs);
+      const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+      saveFinancialDataToCloud(uid, newContas, finalLogs).then((ok) => {
+        if (ok) setIsCloudSynced(true);
       });
     },
-    [contas]
+    []
   );
 
   // 3. Desafio Matemático de Segurança para Ações Críticas
@@ -492,8 +593,8 @@ export default function App() {
         }
         return c;
       });
-      addLog('EDITADO', `Editou conta: ${contaData.nome}`);
-      saveData(updated, logs);
+      const updatedLogs = addLog('EDITADO', `Editou conta: ${contaData.nome}`);
+      saveData(updated, updatedLogs);
     } else {
       // Nova conta
       const nova: Conta = {
@@ -517,8 +618,8 @@ export default function App() {
       const detalhe = nova.totalParcelas
         ? `${nova.totalParcelas}x de R$ ${nova.valor.toFixed(2)}`
         : `R$ ${nova.valor.toFixed(2)}`;
-      addLog('CRIADO', `Conta: ${nova.nome} (${nova.pagador}) - ${detalhe}`);
-      saveData(updated, logs);
+      const updatedLogs = addLog('CRIADO', `Conta: ${nova.nome} (${nova.pagador}) - ${detalhe}`);
+      saveData(updated, updatedLogs);
     }
   };
 
@@ -562,8 +663,8 @@ export default function App() {
       }
     }
 
-    addLog('PAGO', `Pagou ${conta.nome} - R$ ${conta.valor.toFixed(2)}`, backup, idNova);
-    saveData(contasAtualizadas, logs);
+    const updatedLogs = addLog('PAGO', `Pagou ${conta.nome} - R$ ${conta.valor.toFixed(2)}`, backup, idNova);
+    saveData(contasAtualizadas, updatedLogs);
   };
 
   // Pagar parcial
@@ -594,13 +695,13 @@ export default function App() {
     });
 
     const finalLista = [...contasAtualizadas, novaParcialPaga];
-    addLog(
+    const updatedLogs = addLog(
       'PARCIAL',
       `Pagou R$ ${valorPago.toFixed(2)} de ${conta.nome}, restou R$ ${restante.toFixed(2)}`,
       backup,
       novaParcialPaga.id
     );
-    saveData(finalLista, logs);
+    saveData(finalLista, updatedLogs);
   };
 
   // Reverter pagamento
@@ -617,8 +718,8 @@ export default function App() {
         }
         return c;
       });
-      addLog('ESTORNO', `Reverteu pagamento de ${conta.nome}`, backup);
-      saveData(updated, logs);
+      const updatedLogs = addLog('ESTORNO', `Reverteu pagamento de ${conta.nome}`, backup);
+      saveData(updated, updatedLogs);
     });
   };
 
@@ -627,8 +728,8 @@ export default function App() {
     requireSecurity('EXCLUIR CONTA', () => {
       const backup = JSON.parse(JSON.stringify(conta));
       const updated = contas.filter((c) => c.id !== conta.id);
-      addLog('EXCLUÍDO', `Apagou a conta ${conta.nome}`, backup);
-      saveData(updated, logs);
+      const updatedLogs = addLog('EXCLUÍDO', `Apagou a conta ${conta.nome}`, backup);
+      saveData(updated, updatedLogs);
     });
   };
 
@@ -646,8 +747,8 @@ export default function App() {
         }
         return c;
       });
-      addLog('ADIADO', `Adiou ${conta.nome} para ${isoParaBR(novaData)}`, backup);
-      saveData(updated, logs);
+      const updatedLogs = addLog('ADIADO', `Adiou ${conta.nome} para ${isoParaBR(novaData)}`, backup);
+      saveData(updated, updatedLogs);
     });
   };
 
@@ -661,8 +762,8 @@ export default function App() {
       dataPagamento: null,
     };
     const updated = [...contas, nova];
-    addLog('CRIADO', `Clonou a conta ${conta.nome}`);
-    saveData(updated, logs);
+    const updatedLogs = addLog('CRIADO', `Clonou a conta ${conta.nome}`);
+    saveData(updated, updatedLogs);
   };
 
   // Copiar código Pix
@@ -840,6 +941,28 @@ export default function App() {
     return mapMeses;
   }, [contas, filtro, searchTerm]);
 
+  // Todas as contas de cada mês (do dia 1 até o último dia do mês, pagas + pendentes) para calcular Total do Mês, Já Pago e Falta Pagar corretamente
+  const todasContasPorMes = useMemo(() => {
+    const termo = searchTerm.trim().toLowerCase();
+    const mapTotalMeses: { [mes: string]: Conta[] } = {};
+
+    const ordenadas = [...contas].sort(
+      (a, b) => new Date(a.vencimento).getTime() - new Date(b.vencimento).getTime()
+    );
+
+    ordenadas.forEach((c) => {
+      if (c.oculta && !c.paga) return;
+      if (termo && !c.nome.toLowerCase().includes(termo) && !c.pagador?.toLowerCase().includes(termo)) {
+        return;
+      }
+      const mesKey = getMesAno(c.vencimento);
+      if (!mapTotalMeses[mesKey]) mapTotalMeses[mesKey] = [];
+      mapTotalMeses[mesKey].push(c);
+    });
+
+    return mapTotalMeses;
+  }, [contas, searchTerm]);
+
   // Estatísticas gerais
   const statsGerais = useMemo(() => {
     let totalPendente = 0;
@@ -862,20 +985,43 @@ export default function App() {
     return { totalPendente, totalPago, qtdAtrasadas };
   }, [contas]);
 
-  // Se o app estiver bloqueado, exibe tela de segurança (LockScreen)
+  // Função centralizada para selecionar e focar uma conta a partir de uma notificação
+  const handleSelectConta = (contaId: string | number) => {
+    const c = contasRef.current.find((item) => String(item.id) === String(contaId));
+    if (c) {
+      setContaToPay(c);
+      setIsPaymentOpen(true);
+    }
+  };
+
+  // Se o app estiver bloqueado, exibe tela de segurança (LockScreen) com suporte a alertas
   if (!isUnlocked) {
     return (
-      <LockScreen
-        onUnlock={() => setIsUnlocked(true)}
-        configuredPin={profile.pinAcesso || '2007'}
-        isFirebaseAuthenticated={!!firebaseUser}
-        userEmail={firebaseUser?.email}
-      />
+      <>
+        {/* Banner de Notificação Flutuante no Topo da Tela (Heads-Up) */}
+        <HeadsUpNotification onSelectConta={handleSelectConta} />
+        <LockScreen
+          onUnlock={(targetContaId) => {
+            setIsUnlocked(true);
+            if (targetContaId) {
+              setTimeout(() => handleSelectConta(targetContaId), 200);
+            }
+          }}
+          configuredPin={profile.pinAcesso || '2007'}
+          isFirebaseAuthenticated={!!firebaseUser}
+          userEmail={firebaseUser?.email}
+          notificacoes={rawNotifications}
+          onSelectConta={handleSelectConta}
+        />
+      </>
     );
   }
 
   return (
     <div className="min-h-screen bg-[#08080f] text-neutral-100 flex flex-col font-sans pb-24">
+      {/* Banner de Notificação Flutuante no Topo da Tela (Heads-Up) */}
+      <HeadsUpNotification onSelectConta={handleSelectConta} />
+
       {/* Header Superior */}
       <Header
         profile={profile}
@@ -926,7 +1072,7 @@ export default function App() {
 
       {/* Conteúdo Principal */}
       <main className="flex-1 w-full max-w-lg mx-auto px-4 pt-4 space-y-4">
-        {/* Barra de Busca e Atalhos */}
+        {/* Barra de Busca e Botão Olho (Privacidade) */}
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -941,65 +1087,24 @@ export default function App() {
 
           <button
             type="button"
-            onClick={() => {
-              setContaToEdit(null);
-              setIsAddEditOpen(true);
-            }}
-            className="h-10 px-4 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-purple-600/25 active:scale-95 transition-transform duration-75 shrink-0 touch-manipulation"
+            onClick={togglePrivacy}
+            title={isPrivate ? 'Mostrar valores' : 'Ocultar valores (Modo Privacidade)'}
+            className={`w-10 h-10 rounded-2xl border flex items-center justify-center active:scale-95 transition-all duration-75 shrink-0 touch-manipulation ${
+              isPrivate
+                ? 'bg-purple-600/20 text-purple-300 border-purple-500/40 shadow-sm'
+                : 'bg-[#121222] hover:bg-white/10 text-neutral-400 hover:text-white border-white/10'
+            }`}
           >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Nova Conta</span>
+            {isPrivate ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
           </button>
         </div>
 
-        {/* Cards de Resumo Geral (Clicáveis para filtrar) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 touch-manipulation">
-          <button
-            type="button"
-            onClick={() => setFiltro('pendentes')}
-            className={`text-left rounded-2xl p-3.5 transition-transform duration-75 active:scale-[0.98] border touch-manipulation select-none ${
-              filtro === 'pendentes'
-                ? 'bg-[#181228] border-red-500/50 shadow-md shadow-red-500/10 ring-1 ring-red-500/30'
-                : 'bg-[#121222] border-white/5 hover:border-white/15'
-            }`}
-          >
-            <span className="text-[10px] text-neutral-400 font-semibold uppercase tracking-wider block">
-              Contas a Pagar {filtro === 'pendentes' && '• Ativo'}
-            </span>
-            <span
-              className={`text-base sm:text-lg font-bold font-display text-red-400 ${
-                isPrivate ? 'privacy-blur' : ''
-              }`}
-            >
-              {formatCurrency(statsGerais.totalPendente, isPrivate)}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setFiltro('pagas')}
-            className={`text-left rounded-2xl p-3.5 transition-transform duration-75 active:scale-[0.98] border touch-manipulation select-none ${
-              filtro === 'pagas'
-                ? 'bg-[#10201c] border-emerald-500/50 shadow-md shadow-emerald-500/10 ring-1 ring-emerald-500/30'
-                : 'bg-[#121222] border-white/5 hover:border-white/15'
-            }`}
-          >
-            <span className="text-[10px] text-neutral-400 font-semibold uppercase tracking-wider block">
-              Total Pago {filtro === 'pagas' && '• Ativo'}
-            </span>
-            <span
-              className={`text-base sm:text-lg font-bold font-display text-emerald-400 ${
-                isPrivate ? 'privacy-blur' : ''
-              }`}
-            >
-              {formatCurrency(statsGerais.totalPago, isPrivate)}
-            </span>
-          </button>
-
+        {/* Card de Atrasadas (Clicável para filtrar) */}
+        <div className="touch-manipulation">
           <button
             type="button"
             onClick={() => setFiltro('atrasadas')}
-            className={`col-span-2 sm:col-span-1 rounded-2xl p-3.5 transition-transform duration-75 active:scale-[0.98] border flex items-center justify-between sm:flex-col sm:items-start text-left touch-manipulation select-none ${
+            className={`w-full rounded-2xl p-3.5 transition-transform duration-75 active:scale-[0.98] border flex items-center justify-between text-left touch-manipulation select-none ${
               filtro === 'atrasadas'
                 ? 'bg-[#221c10] border-amber-500/50 shadow-md shadow-amber-500/10 ring-1 ring-amber-500/30'
                 : 'bg-[#121222] border-white/5 hover:border-white/15'
@@ -1074,6 +1179,7 @@ export default function App() {
                 key={mes}
                 mes={mes}
                 contas={gruposMes[mes]}
+                todasContasMes={todasContasPorMes[mes]}
                 isPrivate={isPrivate}
                 onPay={(c) => {
                   setContaToPay(c);
@@ -1189,13 +1295,7 @@ export default function App() {
         notificacoes={unreadNotifications}
         onDismiss={handleDismissNotification}
         onDismissAll={handleDismissAllNotifications}
-        onSelectConta={(contaId) => {
-          const c = contas.find((item) => String(item.id) === String(contaId));
-          if (c) {
-            setContaToPay(c);
-            setIsPaymentOpen(true);
-          }
-        }}
+        onSelectConta={handleSelectConta}
       />
     </div>
   );

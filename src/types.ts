@@ -51,7 +51,8 @@ export type TipoNotificacao =
   | 'parcela_fim'
   | 'parcela_penultima'
   | 'parcela_quitada'
-  | 'nova_conta';
+  | 'nova_conta'
+  | 'conta_paga';
 
 export interface NotificacaoAlerta {
   id: string;
