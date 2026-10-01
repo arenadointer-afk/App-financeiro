@@ -1,12 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Fingerprint, KeyRound, Mail, Lock, Eye, EyeOff, CheckCircle2, AlertCircle, UserPlus, LogIn } from 'lucide-react';
+import {
+  Shield,
+  Fingerprint,
+  KeyRound,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertCircle,
+  UserPlus,
+  LogIn,
+  Bell,
+  Clock,
+  AlertTriangle,
+  Sparkles,
+  PartyPopper,
+  ChevronDown,
+  ChevronUp
+} from 'lucide-react';
 import { loginWithEmailPassword, registerWithEmailPassword } from '../lib/firebase';
+import { NotificacaoAlerta } from '../types';
 
 interface LockScreenProps {
-  onUnlock: () => void;
+  onUnlock: (targetContaId?: string | number) => void;
   configuredPin: string;
   isFirebaseAuthenticated: boolean;
   userEmail?: string | null;
+  notificacoes?: NotificacaoAlerta[];
+  onSelectConta?: (contaId: string | number) => void;
 }
 
 export const LockScreen: React.FC<LockScreenProps> = ({
@@ -14,9 +36,15 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   configuredPin,
   isFirebaseAuthenticated,
   userEmail,
+  notificacoes = [],
+  onSelectConta,
 }) => {
-  // Inicia com PIN por padrão para acesso imediato e confiável
-  const [authMode, setAuthMode] = useState<'firebase' | 'pin'>('pin');
+  // Inicia com Email/Senha se o aparelho ainda não estiver conectado à conta (como rede social), ou PIN se já estiver logado
+  const [authMode, setAuthMode] = useState<'firebase' | 'pin'>(() => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return 'pin';
+    const hasSavedCloudAccount = typeof localStorage !== 'undefined' && !!localStorage.getItem('sutello_last_uid');
+    return isFirebaseAuthenticated || hasSavedCloudAccount ? 'pin' : 'firebase';
+  });
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,6 +53,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(true);
+  const [pendingContaId, setPendingContaId] = useState<string | number | null>(null);
 
   // Verifica se o navegador suporta WebAuthn de forma segura
   useEffect(() => {
@@ -79,7 +109,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       } else {
         await loginWithEmailPassword(email.trim(), password);
       }
-      onUnlock();
+      onUnlock(pendingContaId || undefined);
     } catch (err: any) {
       console.error(err);
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
@@ -120,7 +150,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
 
       if (credential) {
         localStorage.setItem('biometria_cadastrada', 'true');
-        onUnlock();
+        onUnlock(pendingContaId || undefined);
       }
     } catch (err) {
       console.warn('Biometria cancelada ou não autenticada', err);
@@ -156,7 +186,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
 
       if (credential) {
         localStorage.setItem('biometria_cadastrada', 'true');
-        onUnlock();
+        onUnlock(pendingContaId || undefined);
       }
     } catch (e) {
       console.error(e);
@@ -171,7 +201,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
 
     if (current.length === 4) {
       if (current === configuredPin || current === '2007') {
-        onUnlock();
+        onUnlock(pendingContaId || undefined);
       } else {
         setErrorMessage('PIN incorreto!');
         setPinInput('');
@@ -180,12 +210,12 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   };
 
   return (
-    <div id="lockscreen-root" className="fixed inset-0 z-50 flex items-center justify-center bg-[#08080f] px-4">
+    <div id="lockscreen-root" className="fixed inset-0 z-50 flex items-center justify-center bg-[#08080f] px-4 overflow-y-auto py-6">
       {/* Background ambient lighting */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-10 right-10 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
-      <div className="relative w-full max-w-sm bg-[#0f0f1a]/95 border border-white/10 rounded-2xl p-7 shadow-2xl backdrop-blur-xl flex flex-col items-center">
+      <div className="relative w-full max-w-sm bg-[#0f0f1a]/95 border border-white/10 rounded-2xl p-6 shadow-2xl backdrop-blur-xl flex flex-col items-center my-auto">
         {/* Shield icon */}
         <div className="w-16 h-16 rounded-2xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-400 mb-4 shadow-lg shadow-purple-900/30">
           <Shield className="w-8 h-8" />
@@ -246,7 +276,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             </div>
 
             <div className="text-[11px] text-purple-300/80 bg-purple-900/20 border border-purple-500/20 p-2 rounded-xl text-center">
-              💡 Use o <strong>mesmo e-mail e senha nos dois celulares</strong> para sincronizar contas e alertas em tempo real.
+              🌐 Use o <strong>mesmo e-mail e senha em todos os seus aparelhos</strong> (celular, notebook, PC ou tablet) para sincronizar tudo automaticamente.
             </div>
 
             <div>
@@ -398,6 +428,93 @@ export const LockScreen: React.FC<LockScreenProps> = ({
                 Email / Senha
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Central de Notificações na Tela de Bloqueio (estilo iPhone / Android) */}
+        {notificacoes && notificacoes.length > 0 && (
+          <div className="w-full mt-4 pt-3.5 border-t border-white/10 select-none">
+            <button
+              type="button"
+              onClick={() => setShowNotifications(!showNotifications)}
+              className="w-full flex items-center justify-between text-xs text-neutral-400 hover:text-white transition-colors"
+            >
+              <div className="flex items-center gap-1.5 font-semibold text-neutral-300">
+                <Bell className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+                <span>Notificações na Tela</span>
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300">
+                  {notificacoes.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 text-[11px] text-purple-400 hover:text-purple-300">
+                <span>{showNotifications ? 'Recolher' : 'Exibir'}</span>
+                {showNotifications ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </div>
+            </button>
+
+            {showNotifications && (
+              <div className="mt-2.5 max-h-44 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                {notificacoes.map((item) => {
+                  const isAtrasada = item.tipo === 'atrasada';
+                  const isHoje = item.tipo === 'hoje';
+                  const isPaga = item.tipo === 'conta_paga';
+                  const isQuitada = item.tipo === 'parcela_quitada';
+
+                  const borderClass = isAtrasada
+                    ? 'border-red-500/30 bg-red-950/20 hover:border-red-500/50'
+                    : isPaga
+                    ? 'border-emerald-500/30 bg-emerald-950/20 hover:border-emerald-500/50'
+                    : isHoje
+                    ? 'border-amber-500/30 bg-amber-950/20 hover:border-amber-500/50'
+                    : 'border-white/10 bg-white/5 hover:border-white/20';
+
+                  const badgeIcon = isAtrasada ? (
+                    <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                  ) : isPaga ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  ) : isHoje ? (
+                    <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  ) : isQuitada ? (
+                    <PartyPopper className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                  ) : (
+                    <Bell className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                  );
+
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => {
+                        if (item.contaId) {
+                          setPendingContaId(item.contaId);
+                          if (biometricAvailable) {
+                            handleBiometrics();
+                          }
+                        }
+                      }}
+                      className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all active:scale-[0.98] ${borderClass}`}
+                    >
+                      <div className="flex items-center justify-between gap-1.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {badgeIcon}
+                          <span className="text-[11px] font-bold text-white truncate">
+                            {item.titulo}
+                          </span>
+                        </div>
+                        <span className="text-[9px] text-neutral-400 shrink-0">
+                          {isHoje ? 'Hoje' : 'Alerta'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-neutral-300 mt-1 leading-snug break-words">
+                        {item.mensagem}
+                      </p>
+                      <div className="text-[9px] text-purple-400/80 mt-1 flex items-center gap-1">
+                        <span>Toque no PIN para desbloquear e ver</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

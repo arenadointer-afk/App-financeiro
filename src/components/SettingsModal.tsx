@@ -329,16 +329,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </div>
 
-          {/* Sincronização em Tempo Real entre 2 Celulares */}
+          {/* Sincronização em Tempo Real em Todos os Aparelhos */}
           <div className="p-3.5 bg-gradient-to-br from-purple-900/20 to-neutral-900/60 border border-purple-500/30 rounded-xl space-y-3">
             <div className="flex items-center gap-2">
               <Cloud className="w-4 h-4 text-purple-400 shrink-0" />
               <div>
-                <span className="font-semibold text-white block text-sm">Sincronização em Tempo Real (2 Celulares)</span>
+                <span className="font-semibold text-white block text-sm">Sincronização em Todos os Aparelhos</span>
                 <span className="text-[11px] text-neutral-400">
                   {userEmail
-                    ? 'Conectado! O que você fizer aqui aparece no outro celular instantaneamente.'
-                    : 'Conecte este celular à nuvem para sincronizar com seu outro aparelho.'}
+                    ? 'Conectado! Tudo o que você fizer sincroniza automaticamente em qualquer celular, notebook ou PC.'
+                    : 'Entre com seu e-mail e senha para sincronizar sua conta em todos os seus aparelhos.'}
                 </span>
               </div>
             </div>
@@ -353,7 +353,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span className="text-[11px] font-mono text-emerald-200">{userEmail}</span>
                 </div>
                 <p className="text-[11px] text-neutral-300 leading-relaxed">
-                  📱 Para ver as mesmas contas e receber notificações no outro celular, basta abrir o app nele e entrar com este mesmo e-mail.
+                  🌐 Qualquer celular, notebook, tablet ou computador que entrar com este mesmo e-mail e senha terá todas as contas e alertas sincronizados em tempo real.
                 </p>
                 <div className="pt-1 flex justify-end">
                   <button

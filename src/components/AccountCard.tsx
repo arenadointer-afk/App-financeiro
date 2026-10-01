@@ -49,16 +49,437 @@ export const AccountCard: React.FC<AccountCardProps> = React.memo(({
   const [expanded, setExpanded] = useState(false);
   const vencInfo = getInfoVencimento(conta.vencimento);
 
-  // Ícone intuitivo por nome da conta
+  // Ícone inteligente baseado nas palavras do nome da conta
   const getCategoryIcon = (nome: string) => {
-    const n = nome.toLowerCase();
-    if (n.includes('luz') || n.includes('energia') || n.includes('enel') || n.includes('cemig')) return '⚡';
-    if (n.includes('agua') || n.includes('água') || n.includes('sabesp') || n.includes('copasa')) return '💧';
-    if (n.includes('net') || n.includes('wifi') || n.includes('internet') || n.includes('claro') || n.includes('vivo')) return '🌐';
-    if (n.includes('card') || n.includes('cartao') || n.includes('cartão') || n.includes('nubank') || n.includes('fatura') || n.includes('inter')) return '💳';
-    if (n.includes('aluguel') || n.includes('condomínio') || n.includes('condominio') || n.includes('casa')) return '🏠';
-    if (n.includes('mercado') || n.includes('compra') || n.includes('supermercado')) return '🛒';
-    if (n.includes('carro') || n.includes('moto') || n.includes('gasolina') || n.includes('combustivel')) return '🚗';
+    const n = (nome || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+    // 1. Academia, Treino, Esporte e Suplementos
+    if (
+      n.includes('academia') ||
+      n.includes('smartfit') ||
+      n.includes('smart fit') ||
+      n.includes('treino') ||
+      n.includes('crossfit') ||
+      n.includes('pilates') ||
+      n.includes('musculacao') ||
+      n.includes('fitness') ||
+      n.includes('gym') ||
+      n.includes('whey') ||
+      n.includes('creatina') ||
+      n.includes('suplemento') ||
+      n.includes('personal') ||
+      n.includes('natacao') ||
+      n.includes('futebol') ||
+      n.includes('esporte') ||
+      n.includes('luta') ||
+      n.includes('jiu') ||
+      n.includes('boxe')
+    ) {
+      return '🏋️';
+    }
+
+    // 2. Celular, Recarga, Telefone, Chip e Aparelhos
+    if (
+      n.includes('celular') ||
+      n.includes('recarga') ||
+      n.includes('telefone') ||
+      n.includes('chip') ||
+      n.includes('tim') ||
+      n.includes('movel') ||
+      n.includes('pre-pago') ||
+      n.includes('pre pago') ||
+      n.includes('pos-pago') ||
+      n.includes('pos pago') ||
+      n.includes('iphone') ||
+      n.includes('samsung') ||
+      n.includes('xiaomi') ||
+      n.includes('motorola') ||
+      n.includes('smartphone')
+    ) {
+      return '📱';
+    }
+
+    // 3. Luz e Energia Elétrica
+    if (
+      n.includes('luz') ||
+      n.includes('energia') ||
+      n.includes('eletrica') ||
+      n.includes('enel') ||
+      n.includes('cemig') ||
+      n.includes('cpfl') ||
+      n.includes('light') ||
+      n.includes('neoenergia') ||
+      n.includes('copel') ||
+      n.includes('celesc') ||
+      n.includes('equatorial') ||
+      n.includes('coelba')
+    ) {
+      return '⚡';
+    }
+
+    // 4. Água e Saneamento
+    if (
+      n.includes('agua') ||
+      n.includes('sabesp') ||
+      n.includes('copasa') ||
+      n.includes('sanepar') ||
+      n.includes('embasa') ||
+      n.includes('cedae') ||
+      n.includes('cagece') ||
+      n.includes('corsan') ||
+      n.includes('caesb') ||
+      n.includes('esgoto') ||
+      n.includes('saneamento')
+    ) {
+      return '💧';
+    }
+
+    // 5. Gás
+    if (
+      n.includes('gas') ||
+      n.includes('botijao') ||
+      n.includes('ultragaz') ||
+      n.includes('supergasbras') ||
+      n.includes('liquigas') ||
+      n.includes('comgas')
+    ) {
+      return '🔥';
+    }
+
+    // 6. Internet, Wi-Fi, Fibra e TV a Cabo
+    if (
+      n.includes('internet') ||
+      n.includes('wifi') ||
+      n.includes('wi-fi') ||
+      n.includes('fibra') ||
+      n.includes('banda larga') ||
+      n.includes('net') ||
+      n.includes('claro') ||
+      n.includes('vivo') ||
+      n.includes('oi ') ||
+      n.includes('sky') ||
+      n.includes('starlink') ||
+      n.includes('modem')
+    ) {
+      return '🌐';
+    }
+
+    // 7. Streaming, Filmes, Música e Jogos
+    if (
+      n.includes('jogo') ||
+      n.includes('game') ||
+      n.includes('playstation') ||
+      n.includes('psn') ||
+      n.includes('xbox') ||
+      n.includes('steam') ||
+      n.includes('nintendo')
+    ) {
+      return '🎮';
+    }
+    if (n.includes('spotify') || n.includes('deezer') || n.includes('musica') || n.includes('apple music')) {
+      return '🎵';
+    }
+    if (
+      n.includes('netflix') ||
+      n.includes('prime') ||
+      n.includes('disney') ||
+      n.includes('hbo') ||
+      n.includes('max') ||
+      n.includes('globoplay') ||
+      n.includes('youtube') ||
+      n.includes('cinema') ||
+      n.includes('filme') ||
+      n.includes('streaming') ||
+      n.includes('tv')
+    ) {
+      return '🎬';
+    }
+
+    // 8. Veículos, Moto, Combustível, Transporte e Manutenção
+    if (n.includes('moto') || n.includes('capacete') || n.includes('honda') || n.includes('yamaha')) {
+      return '🏍️';
+    }
+    if (
+      n.includes('gasolina') ||
+      n.includes('combustivel') ||
+      n.includes('etanol') ||
+      n.includes('alcool') ||
+      n.includes('diesel') ||
+      n.includes('posto') ||
+      n.includes('abastecimento')
+    ) {
+      return '⛽';
+    }
+    if (
+      n.includes('uber') ||
+      n.includes('99') ||
+      n.includes('taxi') ||
+      n.includes('onibus') ||
+      n.includes('metro') ||
+      n.includes('passagem') ||
+      n.includes('pedagio') ||
+      n.includes('transporte')
+    ) {
+      return '🚕';
+    }
+    if (
+      n.includes('carro') ||
+      n.includes('veiculo') ||
+      n.includes('automovel') ||
+      n.includes('ipva') ||
+      n.includes('multa') ||
+      n.includes('detran') ||
+      n.includes('mecanico') ||
+      n.includes('oficina') ||
+      n.includes('pneu') ||
+      n.includes('oleo') ||
+      n.includes('revisao') ||
+      n.includes('estacionamento') ||
+      n.includes('lava jato') ||
+      n.includes('lavajato') ||
+      n.includes('seguro auto')
+    ) {
+      return '🚗';
+    }
+
+    // 9. Alimentação, Lanche, Restaurante e Mercado
+    if (
+      n.includes('ifood') ||
+      n.includes('restaurante') ||
+      n.includes('lanche') ||
+      n.includes('pizza') ||
+      n.includes('hamburguer') ||
+      n.includes('burger') ||
+      n.includes('sushi') ||
+      n.includes('acai') ||
+      n.includes('sorvete') ||
+      n.includes('cafe') ||
+      n.includes('almoco') ||
+      n.includes('jantar') ||
+      n.includes('padaria') ||
+      n.includes('bar') ||
+      n.includes('cerveja') ||
+      n.includes('churrasco') ||
+      n.includes('bebida')
+    ) {
+      return '🍔';
+    }
+    if (
+      n.includes('mercado') ||
+      n.includes('supermercado') ||
+      n.includes('atacadao') ||
+      n.includes('assai') ||
+      n.includes('carrefour') ||
+      n.includes('feira') ||
+      n.includes('hortifruti') ||
+      n.includes('sacolao') ||
+      n.includes('acougue') ||
+      n.includes('carne') ||
+      n.includes('alimento') ||
+      n.includes('comida')
+    ) {
+      return '🛒';
+    }
+
+    // 10. Saúde, Farmácia, Médico e Dentista
+    if (
+      n.includes('farmacia') ||
+      n.includes('remedio') ||
+      n.includes('medicamento') ||
+      n.includes('drogaria') ||
+      n.includes('drogasil') ||
+      n.includes('raia')
+    ) {
+      return '💊';
+    }
+    if (n.includes('dentista') || n.includes('odonto') || n.includes('dente')) {
+      return '🦷';
+    }
+    if (
+      n.includes('medico') ||
+      n.includes('consulta') ||
+      n.includes('exame') ||
+      n.includes('hospital') ||
+      n.includes('clinica') ||
+      n.includes('unimed') ||
+      n.includes('saude') ||
+      n.includes('psicologo') ||
+      n.includes('terapia') ||
+      n.includes('oculos') ||
+      n.includes('otica')
+    ) {
+      return '🩺';
+    }
+
+    // 11. Beleza, Barbearia, Roupas, Calçados e Compras Online
+    if (
+      n.includes('barbearia') ||
+      n.includes('barbeiro') ||
+      n.includes('cabelo') ||
+      n.includes('corte') ||
+      n.includes('salao') ||
+      n.includes('manicure') ||
+      n.includes('unha') ||
+      n.includes('estetica') ||
+      n.includes('perfume') ||
+      n.includes('cosmetico') ||
+      n.includes('boticario') ||
+      n.includes('natura')
+    ) {
+      return '✂️';
+    }
+    if (n.includes('tenis') || n.includes('sapato') || n.includes('calcado') || n.includes('chinelo')) {
+      return '👟';
+    }
+    if (
+      n.includes('roupa') ||
+      n.includes('camisa') ||
+      n.includes('camiseta') ||
+      n.includes('calca') ||
+      n.includes('vestido') ||
+      n.includes('blusa') ||
+      n.includes('shein') ||
+      n.includes('shopee') ||
+      n.includes('mercado livre') ||
+      n.includes('amazon') ||
+      n.includes('aliexpress') ||
+      n.includes('magalu') ||
+      n.includes('casas bahia') ||
+      n.includes('renner') ||
+      n.includes('riachuelo') ||
+      n.includes('cea') ||
+      n.includes('shopping') ||
+      n.includes('loja') ||
+      n.includes('compra')
+    ) {
+      return '🛍️';
+    }
+
+    // 12. Educação, Escola, Faculdade e Cursos
+    if (
+      n.includes('escola') ||
+      n.includes('colegio') ||
+      n.includes('faculdade') ||
+      n.includes('universidade') ||
+      n.includes('curso') ||
+      n.includes('ingles') ||
+      n.includes('livro') ||
+      n.includes('apostila') ||
+      n.includes('creche') ||
+      n.includes('educacao')
+    ) {
+      return '🎓';
+    }
+
+    // 13. Pet / Animais
+    if (
+      n.includes('pet') ||
+      n.includes('racao') ||
+      n.includes('cachorro') ||
+      n.includes('gato') ||
+      n.includes('veterinario') ||
+      n.includes('banho e tosa')
+    ) {
+      return '🐾';
+    }
+
+    // 14. Viagem, Hotel e Lazer
+    if (
+      n.includes('viagem') ||
+      n.includes('hotel') ||
+      n.includes('pousada') ||
+      n.includes('airbnb') ||
+      n.includes('aviao') ||
+      n.includes('voo') ||
+      n.includes('ferias') ||
+      n.includes('praia')
+    ) {
+      return '✈️';
+    }
+
+    // 15. Casa, Moradia, Aluguel, Condomínio, Móveis e Eletros
+    if (
+      n.includes('aluguel') ||
+      n.includes('condominio') ||
+      n.includes('casa') ||
+      n.includes('apartamento') ||
+      n.includes('iptu') ||
+      n.includes('reforma') ||
+      n.includes('obra') ||
+      n.includes('pedreiro') ||
+      n.includes('moveis') ||
+      n.includes('sofa') ||
+      n.includes('cama') ||
+      n.includes('geladeira') ||
+      n.includes('fogao') ||
+      n.includes('lavadora') ||
+      n.includes('ar condicionado') ||
+      n.includes('faxina') ||
+      n.includes('diarista')
+    ) {
+      return '🏠';
+    }
+
+    // 16. Cartão de Crédito, Bancos, Empréstimos e Financiamentos
+    if (
+      n.includes('card') ||
+      n.includes('cartao') ||
+      n.includes('nubank') ||
+      n.includes('fatura') ||
+      n.includes('inter') ||
+      n.includes('itau') ||
+      n.includes('bradesco') ||
+      n.includes('santander') ||
+      n.includes('caixa') ||
+      n.includes('banco') ||
+      n.includes('c6') ||
+      n.includes('picpay') ||
+      n.includes('mercado pago') ||
+      n.includes('mercadopago') ||
+      n.includes('will') ||
+      n.includes('neon') ||
+      n.includes('pan') ||
+      n.includes('emprestimo') ||
+      n.includes('financiamento') ||
+      n.includes('consorcio')
+    ) {
+      return '💳';
+    }
+
+    // 17. Impostos, Taxas, Seguros e Serviços
+    if (
+      n.includes('imposto') ||
+      n.includes('mei') ||
+      n.includes('das') ||
+      n.includes('inss') ||
+      n.includes('taxa') ||
+      n.includes('seguro') ||
+      n.includes('contador') ||
+      n.includes('cartorio') ||
+      n.includes('advogado')
+    ) {
+      return '📋';
+    }
+
+    // 18. Presentes, Festas, Dízimo e Doações
+    if (
+      n.includes('presente') ||
+      n.includes('aniversario') ||
+      n.includes('festa') ||
+      n.includes('casamento') ||
+      n.includes('dizimo') ||
+      n.includes('oferta') ||
+      n.includes('igreja') ||
+      n.includes('doacao') ||
+      n.includes('pensao') ||
+      n.includes('mesada')
+    ) {
+      return '🎁';
+    }
+
     return '📄';
   };
 
@@ -75,15 +496,15 @@ export const AccountCard: React.FC<AccountCardProps> = React.memo(({
       }`}
     >
       {/* Topo do Card */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2.5 flex-1 min-w-0">
-          <span className="text-xl shrink-0 p-1.5 bg-white/5 rounded-xl border border-white/10">
+      <div className="flex items-start justify-between gap-2.5">
+        <div className="flex items-start gap-2.5 flex-1 min-w-0">
+          <span className="text-xl shrink-0 p-1.5 bg-white/5 rounded-xl border border-white/10 mt-0.5">
             {getCategoryIcon(conta.nome)}
           </span>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <h4
-                className={`font-semibold text-sm truncate ${
+                className={`font-semibold text-sm break-words leading-snug ${
                   conta.paga ? 'line-through text-neutral-400' : 'text-white'
                 }`}
               >
@@ -95,7 +516,7 @@ export const AccountCard: React.FC<AccountCardProps> = React.memo(({
                 </span>
               )}
             </div>
-            <div className="text-[11px] text-neutral-400 mt-0.5 flex items-center gap-2 flex-wrap">
+            <div className="text-[11px] text-neutral-400 mt-1 flex items-center gap-2 flex-wrap">
               <span>🗓 {isoParaBR(conta.vencimento)}</span>
               {conta.totalParcelas && conta.totalParcelas > 0 ? (
                 <span className="text-purple-400 font-medium">
@@ -111,7 +532,7 @@ export const AccountCard: React.FC<AccountCardProps> = React.memo(({
         </div>
 
         {/* Status Badge */}
-        <div>
+        <div className="shrink-0">
           {conta.paga ? (
             <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
               <CheckCircle2 className="w-3 h-3" /> PAGO

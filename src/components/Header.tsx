@@ -1,29 +1,26 @@
 import React from 'react';
-import { Eye, EyeOff, Settings, Lock, CloudCheck, CloudOff, Bell } from 'lucide-react';
+import { Bell } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface HeaderProps {
   profile: UserProfile;
-  isPrivate: boolean;
+  isPrivate?: boolean;
   isCloudSynced: boolean;
   userEmail?: string | null;
   unreadNotificationsCount?: number;
   onOpenNotifications?: () => void;
-  onTogglePrivacy: () => void;
+  onTogglePrivacy?: () => void;
   onOpenSettings: () => void;
-  onLockApp: () => void;
+  onLockApp?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = React.memo(({
   profile,
-  isPrivate,
   isCloudSynced,
   userEmail,
   unreadNotificationsCount = 0,
   onOpenNotifications,
-  onTogglePrivacy,
   onOpenSettings,
-  onLockApp,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-[#0c0c16]/90 backdrop-blur-xl border-b border-white/10 px-4 py-3.5 flex items-center justify-between touch-manipulation select-none">
@@ -59,27 +56,22 @@ export const Header: React.FC<HeaderProps> = React.memo(({
             </h2>
           </div>
           <p className="text-[11px] text-neutral-400 flex items-center gap-1">
-            {isCloudSynced && userEmail ? (
-              <span className="text-emerald-400 flex items-center gap-1 text-[10px] font-medium" title={`Sincronizado via ${userEmail}`}>
+            {isCloudSynced ? (
+              <span className="text-emerald-400 flex items-center gap-1 text-[10px] font-medium" title={userEmail ? `Sincronizado via ${userEmail}` : 'Nuvem ativa'}>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Nuvem ativa ({userEmail.split('@')[0]})
-              </span>
-            ) : isCloudSynced ? (
-              <span className="text-emerald-400/90 flex items-center gap-1 text-[10px]">
-                ● Nuvem ativa
+                Nuvem ativa
               </span>
             ) : (
-              <span className="text-amber-400 flex items-center gap-1 text-[10px] hover:underline" title="Clique para sincronizar com outro celular">
-                ○ Conectar nuvem (2 celulares)
+              <span className="text-amber-400 flex items-center gap-1 text-[10px] hover:underline" title="Clique para entrar com e-mail e senha e sincronizar todos os aparelhos">
+                ○ Entrar para sincronizar aparelhos
               </span>
             )}
           </p>
         </div>
       </div>
 
-      {/* Controles do Topo */}
+      {/* Controles do Topo (Apenas Sino de Notificações) */}
       <div className="flex items-center gap-1.5">
-        {/* Sino de Notificações */}
         <button
           type="button"
           onClick={onOpenNotifications}
@@ -100,40 +92,6 @@ export const Header: React.FC<HeaderProps> = React.memo(({
               {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
             </span>
           )}
-        </button>
-
-        {/* Botão de Privacidade */}
-        <button
-          type="button"
-          onClick={onTogglePrivacy}
-          className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-all ${
-            isPrivate
-              ? 'bg-purple-600/20 text-purple-300 border-purple-500/40 shadow-sm'
-              : 'bg-white/5 hover:bg-white/10 text-neutral-400 border-white/10'
-          }`}
-          title={isPrivate ? 'Mostrar valores' : 'Ocultar valores (Modo Privacidade)'}
-        >
-          {isPrivate ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-        </button>
-
-        {/* Botão Configurações */}
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white border border-white/10 flex items-center justify-center transition-colors"
-          title="Configurações"
-        >
-          <Settings className="w-4 h-4" />
-        </button>
-
-        {/* Botão Bloquear */}
-        <button
-          type="button"
-          onClick={onLockApp}
-          className="w-9 h-9 rounded-xl bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-red-400 border border-white/10 flex items-center justify-center transition-colors"
-          title="Bloquear aplicativo"
-        >
-          <Lock className="w-4 h-4" />
         </button>
       </div>
     </header>

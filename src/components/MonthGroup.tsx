@@ -7,6 +7,7 @@ import { formatCurrency, compartilharMesWhatsApp, baixarPdfMes } from '../lib/ut
 interface MonthGroupProps {
   mes: string;
   contas: Conta[];
+  todasContasMes?: Conta[];
   isPrivate: boolean;
   onPay: (conta: Conta) => void;
   onUndoPay: (conta: Conta) => void;
@@ -22,6 +23,7 @@ interface MonthGroupProps {
 export const MonthGroup: React.FC<MonthGroupProps> = React.memo(({
   mes,
   contas,
+  todasContasMes,
   isPrivate,
   onPay,
   onUndoPay,
@@ -33,17 +35,25 @@ export const MonthGroup: React.FC<MonthGroupProps> = React.memo(({
   onShareWhatsApp,
   onDownloadReceipt,
 }) => {
-  // Totais do mês
+  // Base completa do mês (do dia 1 ao último dia do mês, incluindo pagas e pendentes)
+  const baseContasMes = todasContasMes && todasContasMes.length > 0 ? todasContasMes : contas;
+
+  // Totais do mês inteiro (dia 1 até o último dia do mês)
   let totalMes = 0;
   let pagoMes = 0;
+  let faltaMes = 0;
 
-  contas.forEach((c) => {
+  baseContasMes.forEach((c) => {
     if (c.oculta && !c.paga) return;
-    totalMes += c.valor || 0;
-    if (c.paga) pagoMes += c.valor || 0;
+    const valorNumerico = Number(c.valor) || 0;
+    totalMes += valorNumerico;
+    if (c.paga) {
+      pagoMes += valorNumerico;
+    } else {
+      faltaMes += valorNumerico;
+    }
   });
 
-  const faltaMes = totalMes - pagoMes;
   const pctPago = totalMes > 0 ? (pagoMes / totalMes) * 100 : 0;
 
   return (
@@ -56,14 +66,14 @@ export const MonthGroup: React.FC<MonthGroupProps> = React.memo(({
             {mes}
           </h3>
           <span className="text-[11px] text-neutral-400 font-medium">
-            ({contas.length} {contas.length === 1 ? 'conta' : 'contas'})
+            ({baseContasMes.length} {baseContasMes.length === 1 ? 'conta no mês' : 'contas no mês'})
           </span>
         </div>
 
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            onClick={() => compartilharMesWhatsApp(mes, contas)}
+            onClick={() => compartilharMesWhatsApp(mes, baseContasMes)}
             title="Compartilhar resumo do mês no WhatsApp"
             className="w-8 h-8 rounded-lg bg-white/5 hover:bg-emerald-500/20 text-neutral-400 hover:text-emerald-300 border border-white/10 flex items-center justify-center transition-colors"
           >
@@ -71,7 +81,7 @@ export const MonthGroup: React.FC<MonthGroupProps> = React.memo(({
           </button>
           <button
             type="button"
-            onClick={() => baixarPdfMes(mes, contas)}
+            onClick={() => baixarPdfMes(mes, baseContasMes)}
             title="Baixar extrato do mês em PDF"
             className="w-8 h-8 rounded-lg bg-white/5 hover:bg-purple-500/20 text-neutral-400 hover:text-purple-300 border border-white/10 flex items-center justify-center transition-colors"
           >

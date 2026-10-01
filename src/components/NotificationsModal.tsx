@@ -241,6 +241,26 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
               </label>
 
               <label className="flex items-center justify-between p-2 rounded-lg bg-black/30 hover:bg-black/40 cursor-pointer transition-colors">
+                <span className="text-neutral-200">Contas que vencem hoje</span>
+                <input
+                  type="checkbox"
+                  checked={prefs.contasVenceHoje}
+                  onChange={() => togglePref('contasVenceHoje')}
+                  className="accent-purple-600 w-4 h-4 rounded cursor-pointer"
+                />
+              </label>
+
+              <label className="flex items-center justify-between p-2 rounded-lg bg-black/30 hover:bg-black/40 cursor-pointer transition-colors">
+                <span className="text-neutral-200">Contas pagas no outro celular</span>
+                <input
+                  type="checkbox"
+                  checked={prefs.contasPagas}
+                  onChange={() => togglePref('contasPagas')}
+                  className="accent-purple-600 w-4 h-4 rounded cursor-pointer"
+                />
+              </label>
+
+              <label className="flex items-center justify-between p-2 rounded-lg bg-black/30 hover:bg-black/40 cursor-pointer transition-colors">
                 <span className="text-neutral-200">Parcelas acabando ou quitadas</span>
                 <input
                   type="checkbox"
@@ -302,12 +322,13 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
               const isParcelaFim = item.tipo === 'parcela_fim' || item.tipo === 'parcela_penultima';
               const isParcelaQuitada = item.tipo === 'parcela_quitada';
               const isNovaConta = item.tipo === 'nova_conta';
+              const isPaga = item.tipo === 'conta_paga';
 
               const cardBorder = isAtrasada
                 ? 'border-red-500/30 bg-red-950/20 hover:border-red-500/50'
                 : isHoje
                 ? 'border-amber-500/30 bg-amber-950/20 hover:border-amber-500/50'
-                : isParcelaQuitada
+                : isPaga || isParcelaQuitada
                 ? 'border-emerald-500/30 bg-emerald-950/20 hover:border-emerald-500/50'
                 : isParcelaFim
                 ? 'border-purple-500/30 bg-purple-950/20 hover:border-purple-500/50'
@@ -322,6 +343,10 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
               ) : isHoje ? (
                 <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
                   <Clock className="w-4 h-4" />
+                </div>
+              ) : isPaga ? (
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-4 h-4" />
                 </div>
               ) : isParcelaQuitada ? (
                 <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
