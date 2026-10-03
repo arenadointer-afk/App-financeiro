@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   X,
   Calendar,
@@ -16,7 +16,10 @@ import {
   Check,
   CalendarDays,
   ListTodo,
-  StickyNote
+  StickyNote,
+  RotateCw,
+  Users,
+  Bell
 } from 'lucide-react';
 import { DadosAgenda, ItemAgenda, NotaRapida } from '../types';
 
@@ -25,6 +28,7 @@ interface NotasLembretesModalProps {
   onClose: () => void;
   dadosAgenda: DadosAgenda;
   onSaveAgenda: (dados: DadosAgenda) => void;
+  onReloadHistory?: () => Promise<DadosAgenda | undefined>;
 }
 
 const CORES_NOTAS = [
@@ -48,6 +52,7 @@ export const NotasLembretesModal: React.FC<NotasLembretesModalProps> = ({
   onClose,
   dadosAgenda,
   onSaveAgenda,
+  onReloadHistory,
 }) => {
   const [activeTab, setActiveTab] = useState<'agenda' | 'notas'>('agenda');
 
@@ -57,10 +62,36 @@ export const NotasLembretesModal: React.FC<NotasLembretesModalProps> = ({
     setTimeout(() => setToastMsg(null), 3500);
   };
 
+  const [isReloadingHistory, setIsReloadingHistory] = useState(false);
+
+  // Puxar histórico completo do Firebase automaticamente ao abrir o modal
+  useEffect(() => {
+    if (isOpen && onReloadHistory) {
+      onReloadHistory().catch(() => {});
+    }
+  }, [isOpen, onReloadHistory]);
+
+  const handleManualReload = async () => {
+    if (!onReloadHistory) return;
+    setIsReloadingHistory(true);
+    try {
+      const res = await onReloadHistory();
+      const countItens = res?.itens?.length || 0;
+      const countNotas = res?.notas?.length || 0;
+      showToast(`Histórico sincronizado! ${countItens} lembretes e ${countNotas} notas carregadas do Firebase.`);
+    } catch {
+      showToast('Histórico sincronizado com a nuvem.');
+    } finally {
+      setIsReloadingHistory(false);
+    }
+  };
+
   // Estados Agenda
   const [filtroAgenda, setFiltroAgenda] = useState<'todos' | 'pendentes' | 'concluidos'>('pendentes');
+  const [filtroPessoaAgenda, setFiltroPessoaAgenda] = useState<'todos' | 'Vitórya' | 'Leonardo'>('todos');
   const [showAddItem, setShowAddItem] = useState(false);
   const [itemTitulo, setItemTitulo] = useState('');
+  const [itemPessoa, setItemPessoa] = useState<'Vitórya' | 'Leonardo'>('Vitórya');
   const [itemData, setItemData] = useState(new Date().toISOString().split('T')[0]);
   const [itemHora, setItemHora] = useState('');
   const [itemPrioridade, setItemPrioridade] = useState<ItemAgenda['prioridade']>('media');
@@ -83,8 +114,17 @@ export const NotasLembretesModal: React.FC<NotasLembretesModalProps> = ({
   const itensFiltrados = useMemo(() => {
     const list = dadosAgenda.itens || [];
     let filtered = list;
-    if (filtroAgenda === 'pendentes') filtered = list.filter((i) => !i.concluido);
-    if (filtroAgenda === 'concluidos') filtered = list.filter((i) => i.concluido);
+    if (filtroAgenda === 'pendentes') filtered = filtered.filter((i) => !i.concluido);
+    if (filtroAgenda === 'concluidos') filtered = filtered.filter((i) => i.concluido);
+
+    if (filtroPessoaAgenda !== 'todos') {
+      filtered = filtered.filter((i) => {
+        const norm = (i.pessoa || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        if (filtroPessoaAgenda === 'Vitórya') return norm.includes('vit');
+        if (filtroPessoaAgenda === 'Leonardo') return norm.includes('leo') || !i.pessoa;
+        return true;
+      });
+    }
 
     // Ordenar por data mais próxima primeiro
     return filtered.slice().sort((a, b) => {
@@ -92,7 +132,7 @@ export const NotasLembretesModal: React.FC<NotasLembretesModalProps> = ({
       const dataB = b.data + (b.hora ? 'T' + b.hora : 'T23:59:59');
       return dataA.localeCompare(dataB);
     });
-  }, [dadosAgenda.itens, filtroAgenda]);
+  }, [dadosAgenda.itens, filtroAgenda, filtroPessoaAgenda]);
 
   const notasFiltradas = useMemo(() => {
     const list = dadosAgenda.notas || [];
@@ -120,6 +160,7 @@ export const NotasLembretesModal: React.FC<NotasLembretesModalProps> = ({
       id: 'agenda_' + Date.now(),
       tipo: 'lembrete',
       titulo: itemTitulo.trim(),
+      pessoa: itemPessoa,
       data: itemData,
       hora: itemHora.trim() || undefined,
       prioridade: itemPrioridade,
@@ -133,7 +174,7 @@ export const NotasLembretesModal: React.FC<NotasLembretesModalProps> = ({
       itens: [novo, ...(dadosAgenda.itens || [])],
     };
     onSaveAgenda(updated);
-    showToast(`Lembrete "${novo.titulo}" adicionado à agenda!`);
+    showToast(`Compromisso de ${itemPessoa} ("${novo.titulo}") salvo! Notificações ativas (1 dia antes e no dia).`);
     setShowAddItem(false);
     setItemTitulo('');
     setItemHora('');
@@ -255,12 +296,26 @@ export const NotasLembretesModal: React.FC<NotasLembretesModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onReloadHistory && (
+              <button
+                type="button"
+                onClick={handleManualReload}
+                disabled={isReloadingHistory}
+                title="Puxar todo o histórico já feito no Firebase"
+                className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-amber-500/20 text-neutral-300 hover:text-amber-300 border border-white/10 text-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50 touch-manipulation"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${isReloadingHistory ? 'animate-spin text-amber-400' : ''}`} />
+                <span className="hidden sm:inline font-semibold">Puxar Histórico</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Abas Superiores */}
@@ -311,45 +366,99 @@ export const NotasLembretesModal: React.FC<NotasLembretesModalProps> = ({
           {activeTab === 'agenda' && (
             <div className="space-y-4">
               {/* Barra de Filtro e Adicionar */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 text-xs">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setFiltroAgenda('pendentes')}
+                      className={`py-1.5 px-3 rounded-lg font-semibold transition-all ${
+                        filtroAgenda === 'pendentes' ? 'bg-amber-500 text-black shadow' : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      Pendentes ({pendentesAgenda})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroAgenda('todos')}
+                      className={`py-1.5 px-3 rounded-lg font-semibold transition-all ${
+                        filtroAgenda === 'todos' ? 'bg-amber-500 text-black shadow' : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      Todos ({(dadosAgenda.itens || []).length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroAgenda('concluidos')}
+                      className={`py-1.5 px-3 rounded-lg font-semibold transition-all ${
+                        filtroAgenda === 'concluidos' ? 'bg-amber-500 text-black shadow' : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      Concluídos
+                    </button>
+                  </div>
+
                   <button
                     type="button"
-                    onClick={() => setFiltroAgenda('pendentes')}
-                    className={`py-1.5 px-3 rounded-lg font-semibold transition-all ${
-                      filtroAgenda === 'pendentes' ? 'bg-amber-500 text-black shadow' : 'text-neutral-400 hover:text-white'
-                    }`}
+                    onClick={() => {
+                      if (filtroPessoaAgenda === 'Leonardo') setItemPessoa('Leonardo');
+                      else setItemPessoa('Vitórya');
+                      setShowAddItem(true);
+                    }}
+                    className="py-2 px-3.5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-black font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20 transition-all shrink-0"
                   >
-                    Pendentes ({pendentesAgenda})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFiltroAgenda('todos')}
-                    className={`py-1.5 px-3 rounded-lg font-semibold transition-all ${
-                      filtroAgenda === 'todos' ? 'bg-amber-500 text-black shadow' : 'text-neutral-400 hover:text-white'
-                    }`}
-                  >
-                    Todos ({(dadosAgenda.itens || []).length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFiltroAgenda('concluidos')}
-                    className={`py-1.5 px-3 rounded-lg font-semibold transition-all ${
-                      filtroAgenda === 'concluidos' ? 'bg-amber-500 text-black shadow' : 'text-neutral-400 hover:text-white'
-                    }`}
-                  >
-                    Concluídos
+                    <Plus className="w-4 h-4" />
+                    <span>Novo Lembrete / Compromisso</span>
                   </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setShowAddItem(true)}
-                  className="py-2 px-3.5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-black font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20 transition-all shrink-0"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Novo Lembrete / Tarefa</span>
-                </button>
+                {/* Filtro por Pessoa (Vitórya / Leonardo / Todos) & Aviso de Notificação */}
+                <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-white/[0.03] border border-white/10 text-xs">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[11px] font-bold text-neutral-400 mr-1 flex items-center gap-1">
+                      <Users className="w-3.5 h-3.5 text-amber-400" />
+                      De quem:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroPessoaAgenda('todos')}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                        filtroPessoaAgenda === 'todos'
+                          ? 'bg-amber-500 text-black shadow'
+                          : 'bg-white/5 text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      Todos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroPessoaAgenda('Vitórya')}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                        filtroPessoaAgenda === 'Vitórya'
+                          ? 'bg-pink-600 text-white shadow'
+                          : 'bg-white/5 text-pink-300/80 hover:text-pink-200 border border-pink-500/20'
+                      }`}
+                    >
+                      👩 Vitórya
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroPessoaAgenda('Leonardo')}
+                      className={`px-2.5 py-1 rounded-lg font-bold transition-all ${
+                        filtroPessoaAgenda === 'Leonardo'
+                          ? 'bg-blue-600 text-white shadow'
+                          : 'bg-white/5 text-blue-300/80 hover:text-blue-200 border border-blue-500/20'
+                      }`}
+                    >
+                      👨 Leonardo
+                    </button>
+                  </div>
+
+                  <span className="text-[10px] text-amber-300/90 flex items-center gap-1 font-medium">
+                    <Bell className="w-3 h-3 text-amber-400" />
+                    Alerta no celular 1 dia antes e no dia
+                  </span>
+                </div>
               </div>
 
               {/* Lista de Itens da Agenda */}
@@ -364,13 +473,27 @@ export const NotasLembretesModal: React.FC<NotasLembretesModalProps> = ({
                   <p className="text-xs text-neutral-400 max-w-xs mx-auto mb-3">
                     Adicione compromissos com data e hora para manter seu dia sempre sob controle.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => setShowAddItem(true)}
-                    className="py-2 px-4 bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded-xl text-xs"
-                  >
-                    Criar Lembrete
-                  </button>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddItem(true)}
+                      className="py-2 px-4 bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded-xl text-xs inline-flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Criar Lembrete</span>
+                    </button>
+                    {onReloadHistory && (
+                      <button
+                        type="button"
+                        onClick={handleManualReload}
+                        disabled={isReloadingHistory}
+                        className="py-2 px-3 bg-white/5 hover:bg-white/10 text-neutral-300 rounded-xl text-xs inline-flex items-center gap-1.5 border border-white/10"
+                      >
+                        <RotateCw className={`w-3.5 h-3.5 ${isReloadingHistory ? 'animate-spin' : ''}`} />
+                        <span>Puxar Histórico da Nuvem</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -405,7 +528,18 @@ export const NotasLembretesModal: React.FC<NotasLembretesModalProps> = ({
                           </button>
 
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {item.pessoa && (
+                                <span
+                                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                                    item.pessoa.toLowerCase().includes('vit')
+                                      ? 'bg-pink-500/20 text-pink-300 border-pink-500/30'
+                                      : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                  }`}
+                                >
+                                  {item.pessoa.toLowerCase().includes('vit') ? '👩 Vitórya' : '👨 Leonardo'}
+                                </span>
+                              )}
                               <h4 className={`text-sm font-bold ${item.concluido ? 'line-through text-neutral-400' : 'text-white'}`}>
                                 {item.titulo}
                               </h4>
@@ -497,13 +631,27 @@ export const NotasLembretesModal: React.FC<NotasLembretesModalProps> = ({
                   <p className="text-xs text-neutral-400 max-w-xs mx-auto mb-3">
                     Crie notas livres com listas, ideias, senhas rápidas ou lembretes diários.
                   </p>
-                  <button
-                    type="button"
-                    onClick={handleOpenAddNota}
-                    className="py-2 px-4 bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded-xl text-xs"
-                  >
-                    Criar Primeira Nota
-                  </button>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleOpenAddNota}
+                      className="py-2 px-4 bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded-xl text-xs inline-flex items-center gap-1.5"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Criar Primeira Nota</span>
+                    </button>
+                    {onReloadHistory && (
+                      <button
+                        type="button"
+                        onClick={handleManualReload}
+                        disabled={isReloadingHistory}
+                        className="py-2 px-3 bg-white/5 hover:bg-white/10 text-neutral-300 rounded-xl text-xs inline-flex items-center gap-1.5 border border-white/10"
+                      >
+                        <RotateCw className={`w-3.5 h-3.5 ${isReloadingHistory ? 'animate-spin' : ''}`} />
+                        <span>Puxar Histórico da Nuvem</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -573,7 +721,7 @@ export const NotasLembretesModal: React.FC<NotasLembretesModalProps> = ({
         <div className="p-3.5 bg-[#121220] border-t border-white/10 flex items-center justify-between text-xs text-neutral-400">
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            Sincronizado na nuvem (dados_agenda)
+            Sincronizado na nuvem (dados_caixinhas_agenda)
           </span>
           <button
             type="button"
@@ -601,6 +749,39 @@ export const NotasLembretesModal: React.FC<NotasLembretesModalProps> = ({
             </div>
 
             <form onSubmit={handleSaveItemAgenda} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-neutral-400 font-semibold mb-1.5">
+                  De quem é o compromisso? *
+                </label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setItemPessoa('Vitórya')}
+                    className={`py-2.5 px-3 rounded-xl font-bold flex items-center justify-center gap-2 border transition-all ${
+                      itemPessoa === 'Vitórya'
+                        ? 'bg-pink-600 text-white border-pink-400 shadow-lg shadow-pink-600/25'
+                        : 'bg-white/5 text-neutral-300 border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    <span>👩 Vitórya</span>
+                    {itemPessoa === 'Vitórya' && <Check className="w-4 h-4" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setItemPessoa('Leonardo')}
+                    className={`py-2.5 px-3 rounded-xl font-bold flex items-center justify-center gap-2 border transition-all ${
+                      itemPessoa === 'Leonardo'
+                        ? 'bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-600/25'
+                        : 'bg-white/5 text-neutral-300 border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    <span>👨 Leonardo</span>
+                    {itemPessoa === 'Leonardo' && <Check className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-neutral-400 font-semibold mb-1">Título do Lembrete *</label>
                 <input

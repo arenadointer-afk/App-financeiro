@@ -105,40 +105,93 @@ export const AcordosModal: React.FC<AcordosModalProps> = ({
     };
   }, [dividas]);
 
-  // Agrupamento por Mês com Datas Precisas (idêntico ao app.js original)
+  // Agrupamento por Mês com Datas Precisas:
+  // 1) Sempre o mês atual em primeiro lugar, seguido pelos meses mais próximos
+  // 2) Cada dívida só mostra o próximo mês quando a parcela atual dela for paga!
   const gruposMeses = useMemo(() => {
-    const mapa: { [chave: string]: DividaLimpaNome[] } = {};
+    const hoje = new Date();
+    const mesAtualChave = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
 
-    // Ordenação estritamente cronológica por vencimento
-    const ordenadas = [...dividas].sort((a, b) => {
-      const vA = String(a.vencimento || '9999-12-31');
-      const vB = String(b.vencimento || '9999-12-31');
-      const tA = new Date(vA + 'T12:00:00').getTime();
-      const tB = new Date(vB + 'T12:00:00').getTime();
-      return tA - tB;
-    });
-
-    ordenadas.forEach((d) => {
-      let venc = String(d.vencimento || '').trim();
-      if (!venc) venc = new Date().toISOString().split('T')[0];
+    const normalizarData = (v: string) => {
+      let venc = String(v || '').trim();
+      if (!venc) return new Date().toISOString().split('T')[0];
       if (venc.includes('/')) {
         const p = venc.split('/');
-        if (p.length === 3) venc = `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+        if (p.length === 3) return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
       }
+      return venc;
+    };
 
+    // Ordenação estritamente cronológica por vencimento e número da parcela
+    const ordenadas = [...dividas]
+      .map((d) => ({ ...d, vencimento: normalizarData(d.vencimento) }))
+      .sort((a, b) => {
+        const tA = new Date((a.vencimento || '9999-12-31') + 'T12:00:00').getTime();
+        const tB = new Date((b.vencimento || '9999-12-31') + 'T12:00:00').getTime();
+        if (tA !== tB) return tA - tB;
+        return (a.parcelaAtual || 1) - (b.parcelaAtual || 1);
+      });
+
+    // Regra solicitada: "a dívida só mostre o próximo mês quando pagar a parcela atual dela"
+    // Se houver mais de uma parcela pendente da mesma dívida/credor, exibe apenas a parcela pendente atual (a mais próxima/menor parcela)
+    const credorJaTemPendenteVisivel = new Set<string>();
+    const dividasComControleDeParcela = ordenadas.filter((d) => {
+      if (d.paga) return true; // Parcelas já pagas permanecem no histórico de seus meses
+      const chaveCredor = (d.nome || '').trim().toLowerCase();
+      if (!chaveCredor) return true;
+      if (credorJaTemPendenteVisivel.has(chaveCredor)) {
+        // Oculta parcelas de meses seguintes enquanto a parcela atual ainda não foi paga
+        return false;
+      }
+      credorJaTemPendenteVisivel.add(chaveCredor);
+      return true;
+    });
+
+    const mapa: { [chave: string]: DividaLimpaNome[] } = {};
+
+    dividasComControleDeParcela.forEach((d) => {
+      const venc = d.vencimento;
       const dt = new Date(venc + 'T12:00:00');
       const mm = (dt.getMonth() + 1).toString().padStart(2, '0');
       const yyyy = dt.getFullYear();
       const k = `${yyyy}-${mm}`;
 
       if (!mapa[k]) mapa[k] = [];
-      mapa[k].push({ ...d, vencimento: venc });
+      mapa[k].push(d);
     });
 
-    const chaves = Object.keys(mapa).sort();
+    // Ordena os meses colocando SEMPRE o mês atual em primeiro lugar,
+    // depois os meses futuros mais próximos em ordem crescente, e por fim meses anteriores mais próximos
+    const chaves = Object.keys(mapa).sort((a, b) => {
+      if (a === mesAtualChave && b !== mesAtualChave) return -1;
+      if (b === mesAtualChave && a !== mesAtualChave) return 1;
+
+      const isAFuturoOuAtual = a >= mesAtualChave;
+      const isBFuturoOuAtual = b >= mesAtualChave;
+
+      if (isAFuturoOuAtual && isBFuturoOuAtual) {
+        return a.localeCompare(b); // Mais próximos do mês atual primeiro
+      }
+      if (isAFuturoOuAtual && !isBFuturoOuAtual) {
+        // Se o mês passado ainda tiver conta pendente atrasada, mostra logo após o mês atual; senão prioriza os próximos meses
+        const bTemPendente = mapa[b].some((x) => !x.paga);
+        const aTemPendente = mapa[a].some((x) => !x.paga);
+        if (bTemPendente && !aTemPendente) return 1;
+        return -1;
+      }
+      if (!isAFuturoOuAtual && isBFuturoOuAtual) {
+        const aTemPendente = mapa[a].some((x) => !x.paga);
+        const bTemPendente = mapa[b].some((x) => !x.paga);
+        if (aTemPendente && !bTemPendente) return -1;
+        return 1;
+      }
+      // Ambos no passado: mês mais recente (mais próximo do atual) primeiro
+      return b.localeCompare(a);
+    });
 
     return chaves.map((k) => {
       const [yyyy, mm] = k.split('-');
+      const isMesAtual = k === mesAtualChave;
       const nomeMes = `${mesesNomes[mm] || mm} ${yyyy}`;
       const todasDoMes = mapa[k];
       const visiveis = todasDoMes.filter((d) => {
@@ -159,6 +212,7 @@ export const AcordosModal: React.FC<AcordosModalProps> = ({
       return {
         chave: k,
         nomeMes,
+        isMesAtual,
         todasDoMes,
         visiveis,
         totalMes,
@@ -603,7 +657,12 @@ export const AcordosModal: React.FC<AcordosModalProps> = ({
                   <div className="flex items-center justify-between border-b border-white/10 pb-2">
                     <h4 className="text-sm font-bold text-white flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-purple-400" />
-                      {m.nomeMes}
+                      <span>{m.nomeMes}</span>
+                      {m.isMesAtual && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-600 text-white uppercase tracking-wider shadow">
+                          Mês Atual
+                        </span>
+                      )}
                     </h4>
                     <span className="text-[11px] text-purple-300 font-semibold">
                       {m.visiveis.length} {m.visiveis.length === 1 ? 'conta' : 'contas'}

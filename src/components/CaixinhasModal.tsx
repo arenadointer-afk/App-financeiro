@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   X,
   Package,
@@ -20,7 +20,8 @@ import {
   Car,
   Plane,
   Heart,
-  Wallet
+  Wallet,
+  RotateCw
 } from 'lucide-react';
 import { Caixinha, TransacaoCaixinha } from '../types';
 
@@ -32,6 +33,7 @@ interface CaixinhasModalProps {
   onDeleteCaixinha: (id: string) => void;
   onDeposit: (id: string, valor: number, descricao?: string) => void;
   onWithdraw: (id: string, valor: number, descricao?: string) => void;
+  onReloadHistory?: () => Promise<Caixinha[] | undefined>;
 }
 
 const CATEGORIAS_CONFIG: {
@@ -83,10 +85,18 @@ export const CaixinhasModal: React.FC<CaixinhasModalProps> = ({
   onDeleteCaixinha,
   onDeposit,
   onWithdraw,
+  onReloadHistory,
 }) => {
   const [activeCategory, setActiveCategory] = useState<string>('todas');
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingCaixinha, setEditingCaixinha] = useState<Caixinha | null>(null);
+  const [isReloadingHistory, setIsReloadingHistory] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && onReloadHistory) {
+      onReloadHistory().catch(() => {});
+    }
+  }, [isOpen, onReloadHistory]);
 
   // Modal de Transação (Guardar / Resgatar)
   const [transactionModal, setTransactionModal] = useState<{
@@ -212,18 +222,31 @@ export const CaixinhasModal: React.FC<CaixinhasModalProps> = ({
     setShowAddForm(false);
   };
 
+  const handleManualReload = async () => {
+    if (!onReloadHistory) return;
+    setIsReloadingHistory(true);
+    try {
+      const res = await onReloadHistory();
+      showToast(`Sincronizado com dados_caixinhas_agenda! ${res?.length || 0} caixinhas carregadas.`);
+    } catch {
+      showToast('Caixinhas sincronizadas com a nuvem.');
+    } finally {
+      setIsReloadingHistory(false);
+    }
+  };
+
   const handleConfirmTransaction = (e: React.FormEvent) => {
     e.preventDefault();
     if (!transactionModal) return;
 
     const val = parseFloat(transacaoValor.replace(',', '.'));
     if (!val || val <= 0) {
-      alert('Informe um valor válido maior que zero.');
+      showToast('Informe um valor válido maior que zero.');
       return;
     }
 
     if (transactionModal.tipo === 'resgate' && val > transactionModal.saldoAtual) {
-      alert('O valor de resgate não pode ser maior que o saldo disponível na caixinha!');
+      showToast('O valor de resgate não pode ser maior que o saldo disponível na caixinha!');
       return;
     }
 
@@ -274,12 +297,26 @@ export const CaixinhasModal: React.FC<CaixinhasModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onReloadHistory && (
+              <button
+                type="button"
+                onClick={handleManualReload}
+                disabled={isReloadingHistory}
+                title="Puxar caixinhas salvas em dados_caixinhas_agenda no Firebase"
+                className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-emerald-500/20 text-neutral-300 hover:text-emerald-300 border border-white/10 text-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50 touch-manipulation"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${isReloadingHistory ? 'animate-spin text-emerald-400' : ''}`} />
+                <span className="hidden sm:inline font-semibold">Puxar Histórico</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Corpo com Scroll */}

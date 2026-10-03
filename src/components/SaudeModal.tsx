@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   X,
   Heart,
@@ -24,7 +24,13 @@ import {
   TrendingUp,
   Minus,
   Sparkles,
-  Info
+  Info,
+  RotateCw,
+  Target,
+  Award,
+  MessageCircle,
+  User,
+  Users
 } from 'lucide-react';
 import {
   DadosSaude,
@@ -39,6 +45,7 @@ interface SaudeModalProps {
   onClose: () => void;
   dadosSaude: DadosSaude;
   onSaveSaude: (dados: DadosSaude) => void;
+  onReloadHistory?: () => Promise<DadosSaude | undefined>;
 }
 
 // Utilitário de Cálculo de IMC e Classificação da OMS
@@ -106,8 +113,16 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
   onClose,
   dadosSaude,
   onSaveSaude,
+  onReloadHistory,
 }) => {
   const [activeTab, setActiveTab] = useState<'pesoxaltura' | 'remedios' | 'consultas' | 'metricas' | 'cartao'>('pesoxaltura');
+
+  // Puxar histórico completo do Firebase automaticamente ao abrir o modal
+  useEffect(() => {
+    if (isOpen && onReloadHistory) {
+      onReloadHistory().catch(() => {});
+    }
+  }, [isOpen, onReloadHistory]);
 
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const showToast = (msg: string) => {
@@ -123,11 +138,18 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
   const [editingPerfil, setEditingPerfil] = useState(false);
 
   // Estados Peso x Altura
+  const [inputPessoaPeso, setInputPessoaPeso] = useState<'Vitórya' | 'Leonardo'>('Vitórya');
+  const [filtroPessoaPeso, setFiltroPessoaPeso] = useState<'todos' | 'Vitórya' | 'Leonardo'>('todos');
   const [inputPeso, setInputPeso] = useState('');
   const [inputAltura, setInputAltura] = useState('');
   const [inputDataPeso, setInputDataPeso] = useState(new Date().toISOString().split('T')[0]);
   const [inputHoraPeso, setInputHoraPeso] = useState(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
   const [inputObsPeso, setInputObsPeso] = useState('');
+  const [editingPesoId, setEditingPesoId] = useState<string | null>(null);
+  const [buscaPeso, setBuscaPeso] = useState('');
+  const [showEditMeta, setShowEditMeta] = useState(false);
+  const [inputMetaPeso, setInputMetaPeso] = useState(String(dadosSaude.metaPeso || dadosSaude.perfilSaude?.metaPeso || ''));
+  const [isReloadingHistory, setIsReloadingHistory] = useState(false);
 
   // Estados Medicamentos
   const [remNome, setRemNome] = useState('');
@@ -164,22 +186,46 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
 
   const dataHojeStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
-  // Histórico ordenado de Peso x Altura (mais recente primeiro)
+  const matchesPessoa = (itemPessoa: string | undefined, target: 'todos' | 'Vitórya' | 'Leonardo') => {
+    if (target === 'todos') return true;
+    const norm = (itemPessoa || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (target === 'Vitórya') return norm.includes('vit');
+    if (target === 'Leonardo') return norm.includes('leo');
+    return true;
+  };
+
+  // Histórico ordenado de Peso x Altura (mais recente primeiro), respeitando o filtro de pessoa (Vitórya / Leonardo / Todos)
   const historicoPesosOrdenado = useMemo(() => {
-    const list = dadosSaude.historicoPesoAltura || [];
+    const list = (dadosSaude.historicoPesoAltura || []).filter((p) =>
+      matchesPessoa(p.pessoa, filtroPessoaPeso)
+    );
     return list.slice().sort((a, b) => {
       const dataA = a.data + (a.hora ? 'T' + a.hora : 'T00:00:00');
       const dataB = b.data + (b.hora ? 'T' + b.hora : 'T00:00:00');
       return dataB.localeCompare(dataA);
     });
-  }, [dadosSaude.historicoPesoAltura]);
+  }, [dadosSaude.historicoPesoAltura, filtroPessoaPeso]);
+
+  // Lista filtrada de medições por busca textual
+  const pesosFiltrados = useMemo(() => {
+    if (!buscaPeso.trim()) return historicoPesosOrdenado;
+    const q = buscaPeso.toLowerCase();
+    return historicoPesosOrdenado.filter(
+      (p) =>
+        p.data.includes(q) ||
+        (p.pessoa && p.pessoa.toLowerCase().includes(q)) ||
+        (p.observacoes && p.observacoes.toLowerCase().includes(q)) ||
+        (p.classificacao && p.classificacao.toLowerCase().includes(q))
+    );
+  }, [historicoPesosOrdenado, buscaPeso]);
 
   // Medição mais recente
   const ultimaMedicaoPeso = useMemo(() => {
     if (historicoPesosOrdenado.length > 0) return historicoPesosOrdenado[0];
-    if (dadosSaude.pesoAlturaAtual?.peso) {
+    if (filtroPessoaPeso === 'todos' && dadosSaude.pesoAlturaAtual?.peso) {
       return {
         id: 'peso_atual',
+        pessoa: undefined,
         peso: dadosSaude.pesoAlturaAtual.peso,
         altura: dadosSaude.pesoAlturaAtual.altura,
         imc: dadosSaude.pesoAlturaAtual.imc,
@@ -188,7 +234,39 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
       };
     }
     return null;
-  }, [historicoPesosOrdenado, dadosSaude.pesoAlturaAtual]);
+  }, [historicoPesosOrdenado, dadosSaude.pesoAlturaAtual, filtroPessoaPeso]);
+
+  // Estatísticas de evolução de peso e meta
+  const statsPeso = useMemo(() => {
+    const list = historicoPesosOrdenado;
+    if (list.length === 0) {
+      return {
+        pesoInicial: 0,
+        menorPeso: 0,
+        maiorPeso: 0,
+        variacaoTotal: 0,
+        metaPeso: dadosSaude.metaPeso || dadosSaude.perfilSaude?.metaPeso || 0,
+        diferencaParaMeta: null,
+      };
+    }
+    const pesoInicial = list[list.length - 1].peso;
+    const pesoAtual = list[0].peso;
+    const pesos = list.map((p) => p.peso);
+    const menorPeso = Math.min(...pesos);
+    const maiorPeso = Math.max(...pesos);
+    const variacaoTotal = Number((pesoAtual - pesoInicial).toFixed(1));
+    const meta = dadosSaude.metaPeso || dadosSaude.perfilSaude?.metaPeso || 0;
+    const diferencaParaMeta = meta > 0 ? Number((pesoAtual - meta).toFixed(1)) : null;
+
+    return {
+      pesoInicial,
+      menorPeso,
+      maiorPeso,
+      variacaoTotal,
+      metaPeso: meta,
+      diferencaParaMeta,
+    };
+  }, [historicoPesosOrdenado, dadosSaude.metaPeso, dadosSaude.perfilSaude?.metaPeso]);
 
   // Análise da última medição
   const analiseAtual = useMemo(() => {
@@ -197,19 +275,143 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
   }, [ultimaMedicaoPeso]);
 
   // ==========================================
-  // Handlers Peso x Altura
+  // Handlers Peso x Altura & Histórico
   // ==========================================
-  const handleOpenAddPesoAltura = () => {
-    if (ultimaMedicaoPeso?.altura) {
-      setInputAltura(String(ultimaMedicaoPeso.altura));
+  const handleManualReload = async () => {
+    if (!onReloadHistory) return;
+    setIsReloadingHistory(true);
+    try {
+      const res = await onReloadHistory();
+      const countPesos = res?.historicoPesoAltura?.length || 0;
+      showToast(`Histórico do Firebase sincronizado! ${countPesos} registros de peso carregados.`);
+    } catch {
+      showToast('Histórico sincronizado com a nuvem.');
+    } finally {
+      setIsReloadingHistory(false);
     }
-    if (ultimaMedicaoPeso?.peso) {
-      setInputPeso(String(ultimaMedicaoPeso.peso));
+  };
+
+  const handleSelectPessoaModal = (pessoa: 'Vitórya' | 'Leonardo') => {
+    setInputPessoaPeso(pessoa);
+    if (!editingPesoId) {
+      // Preenche automaticamente a última altura e peso registrados dessa pessoa
+      const todosOrdenados = (dadosSaude.historicoPesoAltura || [])
+        .filter((p) => matchesPessoa(p.pessoa, pessoa))
+        .sort((a, b) => (b.data + (b.hora || '')).localeCompare(a.data + (a.hora || '')));
+      if (todosOrdenados.length > 0) {
+        if (todosOrdenados[0].altura) setInputAltura(String(todosOrdenados[0].altura));
+        if (todosOrdenados[0].peso) setInputPeso(String(todosOrdenados[0].peso));
+      }
+    }
+  };
+
+  const handleOpenAddPesoAltura = () => {
+    setEditingPesoId(null);
+    const pessoaPadrao: 'Vitórya' | 'Leonardo' =
+      filtroPessoaPeso === 'Leonardo' ? 'Leonardo' : 'Vitórya';
+    setInputPessoaPeso(pessoaPadrao);
+
+    const ultimosDaPessoa = (dadosSaude.historicoPesoAltura || [])
+      .filter((p) => matchesPessoa(p.pessoa, pessoaPadrao))
+      .sort((a, b) => (b.data + (b.hora || '')).localeCompare(a.data + (a.hora || '')));
+
+    const refMedicao = ultimosDaPessoa[0] || ultimaMedicaoPeso;
+    if (refMedicao?.altura) {
+      setInputAltura(String(refMedicao.altura));
+    }
+    if (refMedicao?.peso) {
+      setInputPeso(String(refMedicao.peso));
     }
     setInputDataPeso(new Date().toISOString().split('T')[0]);
     setInputHoraPeso(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
     setInputObsPeso('');
     setShowAddPesoAltura(true);
+  };
+
+  const handleOpenEditPeso = (item: RegistroPesoAltura) => {
+    setEditingPesoId(item.id);
+    const pNorm = (item.pessoa || '').toLowerCase();
+    setInputPessoaPeso(pNorm.includes('leo') ? 'Leonardo' : 'Vitórya');
+    setInputPeso(String(item.peso));
+    setInputAltura(String(item.altura));
+    setInputDataPeso(item.data);
+    setInputHoraPeso(item.hora || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+    setInputObsPeso(item.observacoes || '');
+    setShowAddPesoAltura(true);
+  };
+
+  const handleSharePesosWhatsApp = (registroUnico?: RegistroPesoAltura) => {
+    let texto = '';
+
+    if (registroUnico) {
+      const calc = calcularIMC(registroUnico.peso, registroUnico.altura);
+      const dataFormatada = new Date(registroUnico.data + 'T00:00:00').toLocaleDateString('pt-BR');
+      const nomePessoa = registroUnico.pessoa || 'Geral';
+      texto =
+        `⚖️ *Medição de Peso x Altura - ${nomePessoa}*\n\n` +
+        `👤 *Pessoa:* ${nomePessoa}\n` +
+        `📅 *Data:* ${dataFormatada}${registroUnico.hora ? ` às ${registroUnico.hora}` : ''}\n` +
+        `🏋️ *Peso:* ${registroUnico.peso.toFixed(1)} kg\n` +
+        `📏 *Altura:* ${registroUnico.altura.toFixed(2)} m\n` +
+        `📊 *IMC:* ${registroUnico.imc || calc.imc} (${registroUnico.classificacao || calc.classificacao})\n` +
+        `🎯 *Faixa Ideal:* ${calc.pesoIdealMin} kg a ${calc.pesoIdealMax} kg` +
+        (registroUnico.observacoes ? `\n📝 *Obs:* ${registroUnico.observacoes}` : '');
+    } else {
+      const lista = pesosFiltrados.length > 0 ? pesosFiltrados : historicoPesosOrdenado;
+      if (lista.length === 0) {
+        showToast('Nenhuma pesagem registrada para compartilhar.');
+        return;
+      }
+
+      const tituloPessoa = filtroPessoaPeso === 'todos' ? 'Vitórya & Leonardo' : filtroPessoaPeso;
+      texto = `📊 *Histórico de Peso x Altura (IMC) - ${tituloPessoa}*\n`;
+      texto += `🗓 *Gerado em:* ${new Date().toLocaleDateString('pt-BR')}\n\n`;
+
+      if (ultimaMedicaoPeso && analiseAtual) {
+        texto += `🏆 *RESUMO ATUAL${ultimaMedicaoPeso.pessoa ? ` (${ultimaMedicaoPeso.pessoa})` : ''}:*\n`;
+        texto += `• *Peso Atual:* ${ultimaMedicaoPeso.peso.toFixed(1)} kg (${ultimaMedicaoPeso.altura.toFixed(2)} m)\n`;
+        texto += `• *IMC:* ${analiseAtual.imc} (${analiseAtual.classificacao})\n`;
+        texto += `• *Peso Ideal:* ${analiseAtual.pesoIdealMin} kg a ${analiseAtual.pesoIdealMax} kg\n`;
+        if (statsPeso.pesoInicial > 0) {
+          texto += `• *Peso Inicial:* ${statsPeso.pesoInicial.toFixed(1)} kg\n`;
+          const sinal = statsPeso.variacaoTotal > 0 ? '+' : '';
+          texto += `• *Variação Total:* ${sinal}${statsPeso.variacaoTotal.toFixed(1)} kg\n`;
+        }
+        if (statsPeso.metaPeso > 0) {
+          texto += `• *Meta de Peso:* ${statsPeso.metaPeso.toFixed(1)} kg\n`;
+        }
+        texto += `\n`;
+      }
+
+      texto += `📋 *HISTÓRICO DE PESAGENS (${lista.length}):*\n`;
+      lista.forEach((item, idx) => {
+        const dt = new Date(item.data + 'T00:00:00').toLocaleDateString('pt-BR');
+        const calc = calcularIMC(item.peso, item.altura);
+        const anterior = lista[idx + 1];
+        const diff = anterior ? item.peso - anterior.peso : null;
+        const diffStr =
+          diff !== null ? ` (${diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1)} kg)` : '';
+        const pessoaTag = item.pessoa ? `[${item.pessoa}] ` : '';
+        const obsStr = item.observacoes ? ` _(${item.observacoes})_` : '';
+        texto += `• ${dt}${item.hora ? ` ${item.hora}` : ''} - ${pessoaTag}*${item.peso.toFixed(1)} kg* | ${item.altura.toFixed(2)}m | IMC ${item.imc || calc.imc} (${item.classificacao || calc.classificacao})${diffStr}${obsStr}\n`;
+      });
+    }
+
+    try {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(texto).catch(() => {});
+      }
+    } catch {}
+
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Histórico preparado para envio no WhatsApp!');
   };
 
   const handleSavePesoAltura = (e: React.FormEvent) => {
@@ -218,7 +420,7 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
     let alturaNum = parseFloat(inputAltura.replace(',', '.'));
 
     if (!pesoNum || pesoNum <= 0 || !alturaNum || alturaNum <= 0) {
-      alert('Por favor, informe peso e altura válidos.');
+      showToast('Por favor, informe peso e altura válidos.');
       return;
     }
 
@@ -226,7 +428,8 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
 
     const calc = calcularIMC(pesoNum, alturaNum);
     const novo: RegistroPesoAltura = {
-      id: 'peso_' + Date.now(),
+      id: editingPesoId || 'peso_' + Date.now(),
+      pessoa: inputPessoaPeso,
       peso: pesoNum,
       altura: alturaNum,
       imc: calc.imc,
@@ -234,27 +437,59 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
       data: inputDataPeso || new Date().toISOString().split('T')[0],
       hora: inputHoraPeso.trim() || undefined,
       observacoes: inputObsPeso.trim() || undefined,
+      metaPeso: statsPeso.metaPeso || undefined,
     };
 
+    let updatedHistorico: RegistroPesoAltura[];
+    if (editingPesoId) {
+      updatedHistorico = (dadosSaude.historicoPesoAltura || []).map((item) =>
+        item.id === editingPesoId ? novo : item
+      );
+    } else {
+      updatedHistorico = [novo, ...(dadosSaude.historicoPesoAltura || [])];
+    }
+
+    const maisRecente = updatedHistorico[0];
     const atual = {
-      peso: pesoNum,
-      altura: alturaNum,
-      imc: calc.imc,
-      classificacao: calc.classificacao,
+      peso: maisRecente.peso,
+      altura: maisRecente.altura,
+      imc: maisRecente.imc,
+      classificacao: maisRecente.classificacao,
       dataAtualizacao: new Date().toISOString(),
     };
 
     const updated: DadosSaude = {
       ...dadosSaude,
-      historicoPesoAltura: [novo, ...(dadosSaude.historicoPesoAltura || [])],
+      historicoPesoAltura: updatedHistorico,
       pesoAlturaAtual: atual,
     };
 
     onSaveSaude(updated);
-    showToast(`Peso x Altura salvo com sucesso! IMC: ${calc.imc} (${calc.classificacao})`);
+    showToast(
+      editingPesoId
+        ? `Medição de ${inputPessoaPeso} atualizada!`
+        : `Peso de ${inputPessoaPeso} salvo! IMC: ${calc.imc} (${calc.classificacao})`
+    );
     setShowAddPesoAltura(false);
+    setEditingPesoId(null);
     setInputPeso('');
     setInputObsPeso('');
+  };
+
+  const handleSaveMetaPeso = (e: React.FormEvent) => {
+    e.preventDefault();
+    const metaNum = parseFloat(inputMetaPeso.replace(',', '.'));
+    const updated: DadosSaude = {
+      ...dadosSaude,
+      metaPeso: metaNum > 0 ? metaNum : undefined,
+      perfilSaude: {
+        ...(dadosSaude.perfilSaude || {}),
+        metaPeso: metaNum > 0 ? metaNum : undefined,
+      },
+    };
+    onSaveSaude(updated);
+    setShowEditMeta(false);
+    showToast(metaNum > 0 ? `Meta de peso definida para ${metaNum.toFixed(1)} kg!` : 'Meta de peso removida.');
   };
 
   const handleDeletePesoAltura = (id: string) => {
@@ -473,12 +708,26 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onReloadHistory && (
+              <button
+                type="button"
+                onClick={handleManualReload}
+                disabled={isReloadingHistory}
+                title="Puxar todo o histórico já feito no Firebase"
+                className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-rose-500/20 text-neutral-300 hover:text-rose-300 border border-white/10 text-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50 touch-manipulation"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${isReloadingHistory ? 'animate-spin text-rose-400' : ''}`} />
+                <span className="hidden sm:inline font-semibold">Puxar Histórico</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Abas de Navegação */}
@@ -495,7 +744,7 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
             <Scale className="w-4 h-4" />
             <span>Peso x Altura</span>
             {historicoPesosOrdenado.length > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500/20 text-rose-300">
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500/20 text-rose-300 font-bold">
                 {historicoPesosOrdenado.length}
               </span>
             )}
@@ -513,7 +762,7 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
             <Pill className="w-4 h-4" />
             <span>Medicamentos</span>
             {(dadosSaude.medicamentos || []).length > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500/20 text-rose-300">
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500/20 text-rose-300 font-bold">
                 {(dadosSaude.medicamentos || []).length}
               </span>
             )}
@@ -531,7 +780,7 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
             <Calendar className="w-4 h-4" />
             <span>Consultas & Exames</span>
             {(dadosSaude.consultas || []).length > 0 && (
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500/20 text-rose-300">
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-500/20 text-rose-300 font-bold">
                 {(dadosSaude.consultas || []).length}
               </span>
             )}
@@ -568,19 +817,86 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
           
           {/* =========================================
-              ABA 0: PESO X ALTURA (IMC)
+              ABA 0: PESO X ALTURA (IMC & METAS)
              ========================================= */}
           {activeTab === 'pesoxaltura' && (
             <div className="space-y-4">
+              {/* Seletor de Pessoa (Vitórya / Leonardo / Todos) & Botão WhatsApp */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 rounded-2xl bg-[#141424] border border-white/10">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] font-bold text-neutral-400 mr-1 flex items-center gap-1">
+                    <Users className="w-3.5 h-3.5 text-rose-400" />
+                    Pessoa:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setFiltroPessoaPeso('todos')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      filtroPessoaPeso === 'todos'
+                        ? 'bg-rose-600 text-white shadow-md shadow-rose-600/20'
+                        : 'bg-white/5 text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    Todos ({(dadosSaude.historicoPesoAltura || []).length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFiltroPessoaPeso('Vitórya')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      filtroPessoaPeso === 'Vitórya'
+                        ? 'bg-pink-600 text-white shadow-md shadow-pink-600/20'
+                        : 'bg-white/5 text-pink-300/80 hover:text-pink-200 border border-pink-500/20'
+                    }`}
+                  >
+                    <span>👩 Vitórya</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFiltroPessoaPeso('Leonardo')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      filtroPessoaPeso === 'Leonardo'
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                        : 'bg-white/5 text-blue-300/80 hover:text-blue-200 border border-blue-500/20'
+                    }`}
+                  >
+                    <span>👨 Leonardo</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSharePesosWhatsApp()}
+                    className="py-2 px-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all"
+                    title="Compartilhar Histórico de Pesos no WhatsApp"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    <span>Compartilhar no WhatsApp</span>
+                  </button>
+                </div>
+              </div>
               
               {/* Card Resumo do IMC Atual */}
               {ultimaMedicaoPeso && analiseAtual ? (
                 <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-[#1c1424] via-[#141424] to-neutral-900 border border-rose-500/30 shadow-xl space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
-                      <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider block">
-                        Última Medição ({new Date(ultimaMedicaoPeso.data + 'T00:00:00').toLocaleDateString('pt-BR')})
-                      </span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
+                          Última Medição ({new Date(ultimaMedicaoPeso.data + 'T00:00:00').toLocaleDateString('pt-BR')})
+                        </span>
+                        {ultimaMedicaoPeso.pessoa && (
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                              ultimaMedicaoPeso.pessoa.toLowerCase().includes('leo')
+                                ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                : 'bg-pink-500/20 text-pink-300 border-pink-500/30'
+                            }`}
+                          >
+                            {ultimaMedicaoPeso.pessoa.toLowerCase().includes('leo') ? '👨 Leonardo' : '👩 Vitórya'}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-baseline gap-3 mt-1">
                         <span className="text-3xl sm:text-4xl font-extrabold font-display text-white">
                           {ultimaMedicaoPeso.peso.toFixed(1)} <span className="text-sm font-normal text-neutral-400">kg</span>
@@ -655,46 +971,172 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
                   <div>
                     <h3 className="text-sm font-bold text-white">Nenhuma medição Peso x Altura registrada</h3>
                     <p className="text-xs text-neutral-400 max-w-sm mx-auto mt-1">
-                      Informe seu peso e altura para calcular seu IMC automaticamente e acompanhar sua evolução física.
+                      Informe seu peso e altura para calcular seu IMC automaticamente e acompanhar sua evolução física sincronizada na nuvem.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleOpenAddPesoAltura}
-                    className="py-2.5 px-4 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold rounded-xl text-xs inline-flex items-center gap-2 shadow-lg shadow-rose-600/20"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Registrar Primeiro Peso x Altura</span>
-                  </button>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleOpenAddPesoAltura}
+                      className="py-2.5 px-4 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold rounded-xl text-xs inline-flex items-center gap-2 shadow-lg shadow-rose-600/20"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Registrar Primeiro Peso x Altura</span>
+                    </button>
+                    {onReloadHistory && (
+                      <button
+                        type="button"
+                        onClick={handleManualReload}
+                        disabled={isReloadingHistory}
+                        className="py-2.5 px-4 bg-white/5 hover:bg-white/10 active:scale-95 text-neutral-300 font-semibold rounded-xl text-xs inline-flex items-center gap-2 border border-white/10"
+                      >
+                        <RotateCw className={`w-3.5 h-3.5 ${isReloadingHistory ? 'animate-spin' : ''}`} />
+                        <span>Recarregar do Firebase</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
-              {/* Botão Adicionar & Título do Histórico */}
-              <div className="flex items-center justify-between pt-2">
-                <div>
-                  <h4 className="text-sm font-bold text-white">Histórico de Medições</h4>
-                  <p className="text-[11px] text-neutral-400">Todas as pesagens sincronizadas no Firebase</p>
+              {/* Card de Meta de Peso & Evolução */}
+              <div className="p-4 rounded-2xl bg-[#141424] border border-white/10 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Target className="w-4 h-4 text-rose-400" />
+                    <span className="font-bold text-xs text-white uppercase tracking-wider">
+                      Meta de Peso & Estatísticas
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInputMetaPeso(String(statsPeso.metaPeso || ''));
+                      setShowEditMeta(true);
+                    }}
+                    className="text-[11px] text-rose-400 hover:text-rose-300 font-semibold flex items-center gap-1"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    <span>{statsPeso.metaPeso > 0 ? 'Alterar Meta' : 'Definir Meta'}</span>
+                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleOpenAddPesoAltura}
-                  className="py-2 px-3 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 shadow-md shadow-rose-600/20 transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Nova Pesagem</span>
-                </button>
+                {/* Grid de 4 Estatísticas */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                  <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5">
+                    <span className="text-[10px] text-neutral-400 block font-medium">Peso Inicial</span>
+                    <span className="text-sm font-bold text-white font-mono">
+                      {statsPeso.pesoInicial > 0 ? `${statsPeso.pesoInicial.toFixed(1)} kg` : '—'}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5">
+                    <span className="text-[10px] text-neutral-400 block font-medium">Menor Peso</span>
+                    <span className="text-sm font-bold text-emerald-400 font-mono">
+                      {statsPeso.menorPeso > 0 ? `${statsPeso.menorPeso.toFixed(1)} kg` : '—'}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5">
+                    <span className="text-[10px] text-neutral-400 block font-medium">Meta de Peso</span>
+                    <span className="text-sm font-bold text-rose-300 font-mono">
+                      {statsPeso.metaPeso > 0 ? `${statsPeso.metaPeso.toFixed(1)} kg` : 'Sem meta'}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/5">
+                    <span className="text-[10px] text-neutral-400 block font-medium">Variação Total</span>
+                    <span className={`text-sm font-bold font-mono ${
+                      statsPeso.variacaoTotal < 0 ? 'text-emerald-400' : statsPeso.variacaoTotal > 0 ? 'text-rose-400' : 'text-neutral-400'
+                    }`}>
+                      {statsPeso.variacaoTotal > 0 ? `+${statsPeso.variacaoTotal.toFixed(1)} kg` : `${statsPeso.variacaoTotal.toFixed(1)} kg`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Banner de Meta Ativa */}
+                {statsPeso.metaPeso > 0 && statsPeso.diferencaParaMeta !== null && (
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Award className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span>
+                        {statsPeso.diferencaParaMeta > 0 ? (
+                          <span>Faltam <strong>{statsPeso.diferencaParaMeta.toFixed(1)} kg</strong> para atingir sua meta de {statsPeso.metaPeso.toFixed(1)} kg</span>
+                        ) : statsPeso.diferencaParaMeta < 0 ? (
+                          <span>Você está <strong>{Math.abs(statsPeso.diferencaParaMeta).toFixed(1)} kg</strong> abaixo da meta de {statsPeso.metaPeso.toFixed(1)} kg</span>
+                        ) : (
+                          <strong className="text-emerald-400">🎉 Parabéns! Você atingiu sua meta de peso exatamente!</strong>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
+              {/* Botão Adicionar & Título do Histórico com Filtro */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2">
+                <div>
+                  <h4 className="text-sm font-bold text-white">Histórico de Medições</h4>
+                  <p className="text-[11px] text-neutral-400">
+                    {historicoPesosOrdenado.length} {historicoPesosOrdenado.length === 1 ? 'pesagem registrada' : 'pesagens registradas'} sincronizadas no Firebase
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {onReloadHistory && (
+                    <button
+                      type="button"
+                      onClick={handleManualReload}
+                      disabled={isReloadingHistory}
+                      className="py-2 px-2.5 bg-white/5 hover:bg-white/10 active:scale-95 text-neutral-300 rounded-xl text-xs flex items-center gap-1.5 border border-white/10"
+                      title="Recarregar histórico completo do Firebase"
+                    >
+                      <RotateCw className={`w-3.5 h-3.5 ${isReloadingHistory ? 'animate-spin text-rose-400' : ''}`} />
+                      <span className="hidden sm:inline">Puxar Nuvem</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleOpenAddPesoAltura}
+                    className="py-2 px-3 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 shadow-md shadow-rose-600/20 transition-all"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Nova Pesagem</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Busca / Filtro no Histórico */}
+              {historicoPesosOrdenado.length > 3 && (
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={buscaPeso}
+                    onChange={(e) => setBuscaPeso(e.target.value)}
+                    placeholder="Filtrar histórico por data (ex: 2026-09) ou anotação..."
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-rose-500"
+                  />
+                  {buscaPeso && (
+                    <button
+                      type="button"
+                      onClick={() => setBuscaPeso('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Lista do Histórico */}
-              {historicoPesosOrdenado.length === 0 ? (
+              {pesosFiltrados.length === 0 ? (
                 <div className="text-center py-6 text-xs text-neutral-500">
-                  Nenhum registro anterior no histórico.
+                  {buscaPeso ? 'Nenhuma medição encontrada com esse filtro.' : 'Nenhum registro anterior no histórico.'}
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {historicoPesosOrdenado.map((item, idx) => {
-                    const anterior = historicoPesosOrdenado[idx + 1];
+                  {pesosFiltrados.map((item, idx) => {
+                    const anterior = historicoPesosOrdenado[historicoPesosOrdenado.findIndex(x => x.id === item.id) + 1];
                     const diffPeso = anterior ? item.peso - anterior.peso : null;
                     const calc = calcularIMC(item.peso, item.altura);
 
@@ -708,7 +1150,18 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
                             <Scale className="w-4 h-4" />
                           </div>
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {item.pessoa && (
+                                <span
+                                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                                    item.pessoa.toLowerCase().includes('leo')
+                                      ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                      : 'bg-pink-500/20 text-pink-300 border-pink-500/30'
+                                  }`}
+                                >
+                                  {item.pessoa.toLowerCase().includes('leo') ? '👨 Leonardo' : '👩 Vitórya'}
+                                </span>
+                              )}
                               <span className="text-sm font-bold font-display text-white">
                                 {item.peso.toFixed(1)} kg
                               </span>
@@ -720,7 +1173,7 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
                               </span>
                             </div>
 
-                            <div className="flex items-center gap-2 text-[11px] text-neutral-400 mt-0.5">
+                            <div className="flex items-center gap-2 text-[11px] text-neutral-400 mt-0.5 flex-wrap">
                               <span>📅 {new Date(item.data + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
                               {item.hora && <span>às {item.hora}</span>}
                               {diffPeso !== null && (
@@ -741,17 +1194,38 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (confirm('Deseja excluir este registro de pesagem?')) {
-                              handleDeletePesoAltura(item.id);
-                            }
-                          }}
-                          className="w-7 h-7 rounded-lg bg-white/5 hover:bg-red-500/20 flex items-center justify-center text-neutral-400 hover:text-red-400 transition-colors shrink-0"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleSharePesosWhatsApp(item)}
+                            title="Compartilhar esta pesagem no WhatsApp"
+                            className="w-7 h-7 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/30 border border-emerald-500/30 flex items-center justify-center text-emerald-400 transition-colors"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditPeso(item)}
+                            title="Editar esta medição"
+                            className="w-7 h-7 rounded-lg bg-white/5 hover:bg-rose-500/20 flex items-center justify-center text-neutral-400 hover:text-rose-300 transition-colors"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm('Deseja excluir este registro de pesagem?')) {
+                                handleDeletePesoAltura(item.id);
+                              }
+                            }}
+                            title="Excluir medição"
+                            className="w-7 h-7 rounded-lg bg-white/5 hover:bg-red-500/20 flex items-center justify-center text-neutral-400 hover:text-red-400 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -1151,13 +1625,18 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
                   <Scale className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-base font-display">Registrar Peso x Altura</h3>
+                  <h3 className="font-bold text-base font-display">
+                    {editingPesoId ? 'Editar Medição Peso x Altura' : 'Registrar Peso x Altura'}
+                  </h3>
                   <span className="text-[11px] text-neutral-400">Cálculo e histórico de IMC</span>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setShowAddPesoAltura(false)}
+                onClick={() => {
+                  setShowAddPesoAltura(false);
+                  setEditingPesoId(null);
+                }}
                 className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-neutral-400 hover:text-white"
               >
                 <X className="w-4 h-4" />
@@ -1165,6 +1644,39 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
             </div>
 
             <form onSubmit={handleSavePesoAltura} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block text-neutral-400 font-semibold mb-1.5">
+                  De quem é esta pesagem? *
+                </label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPessoaModal('Vitórya')}
+                    className={`py-2.5 px-3 rounded-xl font-bold flex items-center justify-center gap-2 border transition-all ${
+                      inputPessoaPeso === 'Vitórya'
+                        ? 'bg-pink-600 text-white border-pink-400 shadow-lg shadow-pink-600/25'
+                        : 'bg-white/5 text-neutral-300 border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    <span>👩 Vitórya</span>
+                    {inputPessoaPeso === 'Vitórya' && <Check className="w-4 h-4" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPessoaModal('Leonardo')}
+                    className={`py-2.5 px-3 rounded-xl font-bold flex items-center justify-center gap-2 border transition-all ${
+                      inputPessoaPeso === 'Leonardo'
+                        ? 'bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-600/25'
+                        : 'bg-white/5 text-neutral-300 border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    <span>👨 Leonardo</span>
+                    {inputPessoaPeso === 'Leonardo' && <Check className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-neutral-400 font-semibold mb-1">Peso (kg) *</label>
@@ -1251,7 +1763,10 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
               <div className="pt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddPesoAltura(false)}
+                  onClick={() => {
+                    setShowAddPesoAltura(false);
+                    setEditingPesoId(null);
+                  }}
                   className="px-4 py-2.5 bg-white/5 hover:bg-white/10 text-neutral-300 font-medium rounded-xl"
                 >
                   Cancelar
@@ -1260,7 +1775,72 @@ export const SaudeModal: React.FC<SaudeModalProps> = ({
                   type="submit"
                   className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold rounded-xl shadow-lg shadow-rose-600/30"
                 >
-                  Salvar Medição
+                  {editingPesoId ? 'Atualizar Medição' : 'Salvar Medição'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Definir Meta de Peso */}
+      {showEditMeta && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-sm bg-[#161626] border border-white/15 rounded-2xl p-5 shadow-2xl text-white">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center">
+                  <Target className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base font-display">Meta de Peso (kg)</h3>
+                  <span className="text-[11px] text-neutral-400">Defina o peso que deseja alcançar</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEditMeta(false)}
+                className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-neutral-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveMetaPeso} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-neutral-400 font-semibold mb-1">Qual é a sua meta de peso?</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    autoFocus
+                    value={inputMetaPeso}
+                    onChange={(e) => setInputMetaPeso(e.target.value)}
+                    placeholder="Ex: 70.0"
+                    className="w-full px-3.5 py-3 bg-white/5 border border-white/10 rounded-xl text-white font-mono text-lg font-bold focus:outline-none focus:border-rose-500"
+                  />
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-400 font-semibold">
+                    kg
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-400 mt-1.5">
+                  Deixe em branco ou informe 0 para remover a meta de peso.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditMeta(false)}
+                  className="px-4 py-2.5 bg-white/5 hover:bg-white/10 text-neutral-300 font-medium rounded-xl"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold rounded-xl shadow-lg shadow-rose-600/30"
+                >
+                  Salvar Meta
                 </button>
               </div>
             </form>
