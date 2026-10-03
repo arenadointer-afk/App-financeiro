@@ -14,16 +14,44 @@ import {
   AlertCircle,
   QrCode,
   Layers,
+  Package,
+  Heart,
+  Calendar,
+  Handshake,
+  PiggyBank,
 } from 'lucide-react';
-import { Conta, LogAtividade, UserProfile, FiltroContas, NotificacaoAlerta } from './types';
+import {
+  Conta,
+  LogAtividade,
+  UserProfile,
+  FiltroContas,
+  NotificacaoAlerta,
+  MensagemTransmissao,
+  Acordo,
+  DividaLimpaNome,
+  Caixinha,
+  TransacaoCaixinha,
+  DadosSaude,
+  DadosAgenda,
+} from './types';
 import {
   auth,
   onAuthStateChangedSafe,
   subscribeToFinancialData,
   fetchFinancialDataFromCloud,
   saveFinancialDataToCloud,
+  saveAcordosToCloud,
+  subscribeToLimpaNomeData,
+  subscribeToLimpaNomeDividas,
+  saveLimpaNomeDividas,
   subscribeToUserProfile,
   saveUserProfileToCloud,
+  subscribeToCaixinhasData,
+  saveCaixinhasToCloud,
+  subscribeToSaudeData,
+  saveSaudeToCloud,
+  subscribeToAgendaData,
+  saveAgendaToCloud,
   signOut,
   syncPendingDataIfOnline,
   PENDING_SYNC_KEY,
@@ -33,9 +61,12 @@ import {
 import {
   notifyContaVencida,
   notifyContaVenceHoje,
+  notifyContasVencidasAgrupadas,
+  notifyContasVenceHojeAgrupadas,
   notifyParcelasConcluidas,
   notifyNovaConta,
   notifyContaPaga,
+  notifyBroadcastAdmin,
 } from './lib/deviceNotifications';
 import { getMesAno, proximoMes, isoParaBR, formatCurrency } from './lib/utils';
 import { Header } from './components/Header';
@@ -52,6 +83,11 @@ import { ActivityLogsModal } from './components/ActivityLogsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { InstallAppBanner } from './components/InstallAppBanner';
 import { NotificationsModal } from './components/NotificationsModal';
+import { AdminBroadcastModal } from './components/AdminBroadcastModal';
+import { AcordosModal } from './components/AcordosModal';
+import { CaixinhasModal } from './components/CaixinhasModal';
+import { SaudeModal } from './components/SaudeModal';
+import { NotasLembretesModal } from './components/NotasLembretesModal';
 
 export default function App() {
   // Estado de bloqueio / autenticação
@@ -117,6 +153,61 @@ export default function App() {
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
+  const [transmissoes, setTransmissoes] = useState<MensagemTransmissao[]>([]);
+
+  // Módulo de Acordos e Dívidas (Limpa Nome)
+  const [isAcordosOpen, setIsAcordosOpen] = useState(false);
+  const [dividas, setDividas] = useState<DividaLimpaNome[]>(() => {
+    try {
+      const saved = localStorage.getItem('sutello_dividas');
+      if (saved) return JSON.parse(saved);
+      return [];
+    } catch {
+      return [];
+    }
+  });
+  const [acordos, setAcordos] = useState<Acordo[]>(() => {
+    try {
+      const saved = localStorage.getItem('sutello_acordos');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Módulo de Caixinhas & Metas (dados_caixinhas)
+  const [isCaixinhasOpen, setIsCaixinhasOpen] = useState(false);
+  const [caixinhas, setCaixinhas] = useState<Caixinha[]>(() => {
+    try {
+      const saved = localStorage.getItem('sutello_caixinhas');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Módulo de Saúde & Bem-Estar (dados_saude)
+  const [isSaudeOpen, setIsSaudeOpen] = useState(false);
+  const [dadosSaude, setDadosSaude] = useState<DadosSaude>(() => {
+    try {
+      const saved = localStorage.getItem('sutello_saude');
+      return saved ? JSON.parse(saved) : { medicamentos: [], consultas: [], metricas: [] };
+    } catch {
+      return { medicamentos: [], consultas: [], metricas: [] };
+    }
+  });
+
+  // Módulo de Notas & Lembretes / Agenda (dados_agenda)
+  const [isAgendaOpen, setIsAgendaOpen] = useState(false);
+  const [dadosAgenda, setDadosAgenda] = useState<DadosAgenda>(() => {
+    try {
+      const saved = localStorage.getItem('sutello_agenda');
+      return saved ? JSON.parse(saved) : { itens: [], notas: [] };
+    } catch {
+      return { itens: [], notas: [] };
+    }
+  });
 
   // Status de conexão e feedback de sincronização
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -157,7 +248,9 @@ export default function App() {
       cloudLogs: LogAtividade[] | undefined,
       cloudTimestamp: number,
       isFromOtherDevice: boolean,
-      cloudExists: boolean = true
+      cloudExists: boolean = true,
+      cloudTransmissoes?: MensagemTransmissao[],
+      cloudAcordos?: Acordo[]
     ) => {
       const hasPendingSync = localStorage.getItem(PENDING_SYNC_KEY) === 'true';
       const lastLocalUpdate = Number(localStorage.getItem(LAST_LOCAL_UPDATE_KEY) || '0');
@@ -220,6 +313,32 @@ export default function App() {
         setLogs(cloudLogs);
         localStorage.setItem('logs', JSON.stringify(cloudLogs));
       }
+
+      if (cloudTransmissoes !== undefined) {
+        setTransmissoes(cloudTransmissoes);
+        try {
+          const notifiedBroadcasts: string[] = JSON.parse(localStorage.getItem('sutello_notified_broadcasts') || '[]');
+          cloudTransmissoes.forEach((msg) => {
+            if (!notifiedBroadcasts.includes(msg.id)) {
+              const isRecent = Date.now() - msg.timestamp < 1000 * 60 * 60 * 48;
+              if (isRecent) {
+                notifyBroadcastAdmin(msg.titulo, msg.mensagem, msg.urgencia, msg.id);
+                setSyncToastMessage(`📢 ${msg.titulo}: ${msg.mensagem}`);
+                setTimeout(() => setSyncToastMessage(null), 6000);
+              }
+              notifiedBroadcasts.push(msg.id);
+            }
+          });
+          localStorage.setItem('sutello_notified_broadcasts', JSON.stringify(notifiedBroadcasts.slice(-100)));
+        } catch {}
+      }
+
+      if (Array.isArray(cloudAcordos) && cloudAcordos.length > 0) {
+        setAcordos(cloudAcordos);
+        try {
+          localStorage.setItem('sutello_acordos', JSON.stringify(cloudAcordos));
+        } catch {}
+      }
     },
     []
   );
@@ -235,7 +354,7 @@ export default function App() {
         // Busca imediata do servidor ao autenticar para garantir os dados mais recentes
         fetchFinancialDataFromCloud(user.uid).then((res) => {
           if (res) {
-            reconcileCloudData(user.uid, res.contas, res.logs, res.timestamp, false, res.exists);
+            reconcileCloudData(user.uid, res.contas, res.logs, res.timestamp, false, res.exists, res.transmissoes, res.acordos);
           }
         });
 
@@ -255,8 +374,20 @@ export default function App() {
             cloudLogs,
             meta?.cloudTimestamp || 0,
             isFromOtherDevice,
-            (meta?.cloudTimestamp || 0) > 0 || (cloudContas && cloudContas.length > 0)
+            (meta?.cloudTimestamp || 0) > 0 || (cloudContas && cloudContas.length > 0),
+            meta?.transmissoes,
+            meta?.acordos
           );
+        });
+
+        // Sincroniza em tempo real dados da coleção dados_limpanome (exatamente como app.js)
+        const unsubLimpaNome = subscribeToLimpaNomeDividas(user.uid, (cloudDividas) => {
+          if (Array.isArray(cloudDividas) && cloudDividas.length > 0) {
+            setDividas(cloudDividas);
+            try {
+              localStorage.setItem('sutello_dividas', JSON.stringify(cloudDividas));
+            } catch {}
+          }
         });
 
         // Sincroniza em tempo real perfil da nuvem
@@ -274,9 +405,34 @@ export default function App() {
           });
         });
 
+        // Sincroniza em tempo real caixinhas (dados_caixinhas)
+        const unsubCaixinhas = subscribeToCaixinhasData(user.uid, (cloudCaixinhas) => {
+          if (Array.isArray(cloudCaixinhas)) {
+            setCaixinhas(cloudCaixinhas);
+          }
+        });
+
+        // Sincroniza em tempo real saúde (dados_saude)
+        const unsubSaude = subscribeToSaudeData(user.uid, (cloudSaude) => {
+          if (cloudSaude) {
+            setDadosSaude(cloudSaude);
+          }
+        });
+
+        // Sincroniza em tempo real agenda (dados_agenda)
+        const unsubAgenda = subscribeToAgendaData(user.uid, (cloudAgenda) => {
+          if (cloudAgenda) {
+            setDadosAgenda(cloudAgenda);
+          }
+        });
+
         return () => {
           unsubData();
+          unsubLimpaNome();
           unsubProfile();
+          unsubCaixinhas();
+          unsubSaude();
+          unsubAgenda();
         };
       } else {
         setIsCloudSynced(false);
@@ -289,7 +445,6 @@ export default function App() {
   // 1.05 Atualizar automaticamente ao focar/abrir o app no celular ou notebook (como rede social)
   useEffect(() => {
     const checkCloudOnFocus = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       const uid = auth?.currentUser?.uid;
       if (!uid || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
 
@@ -297,16 +452,18 @@ export default function App() {
         if (res) {
           const lastLocalUpdate = Number(localStorage.getItem(LAST_LOCAL_UPDATE_KEY) || '0');
           const isNewerOnCloud = res.timestamp > lastLocalUpdate;
-          reconcileCloudData(uid, res.contas, res.logs, res.timestamp, isNewerOnCloud, res.exists);
+          reconcileCloudData(uid, res.contas, res.logs, res.timestamp, isNewerOnCloud, res.exists, res.transmissoes, res.acordos);
         }
       });
     };
 
     window.addEventListener('focus', checkCloudOnFocus);
     document.addEventListener('visibilitychange', checkCloudOnFocus);
+    const interval = setInterval(checkCloudOnFocus, 25000); // Polling leve a cada 25s
     return () => {
       window.removeEventListener('focus', checkCloudOnFocus);
       document.removeEventListener('visibilitychange', checkCloudOnFocus);
+      clearInterval(interval);
     };
   }, [reconcileCloudData]);
 
@@ -353,11 +510,14 @@ export default function App() {
     };
   }, []);
 
-  // 1.2 Monitorar contas vencidas e que vencem hoje e disparar alertas no celular
+  // 1.2 Monitorar contas vencidas e que vencem hoje e disparar alertas no celular de forma agrupada e inteligente
   useEffect(() => {
     if (!contas || contas.length === 0) return;
     const hojeStr = new Date().toISOString().split('T')[0];
     const hojeDate = new Date(hojeStr + 'T00:00:00');
+
+    const contasHoje: Conta[] = [];
+    const contasAtrasadas: { conta: Conta; diasAtraso: number }[] = [];
 
     contas.forEach((conta) => {
       if (conta.oculta || conta.paga || !conta.vencimento) return;
@@ -366,12 +526,21 @@ export default function App() {
       const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
 
       if (diffDays < 0) {
-        const diasAtraso = Math.abs(diffDays);
-        notifyContaVencida(conta, diasAtraso);
+        contasAtrasadas.push({ conta, diasAtraso: Math.abs(diffDays) });
       } else if (diffDays === 0) {
-        notifyContaVenceHoje(conta);
+        contasHoje.push(conta);
       }
     });
+
+    // Se houver contas que vencem hoje, dispara agrupado ou individual
+    if (contasHoje.length > 0) {
+      notifyContasVenceHojeAgrupadas(contasHoje);
+    }
+
+    // Se houver contas atrasadas, dispara agrupado ou individual
+    if (contasAtrasadas.length > 0) {
+      notifyContasVencidasAgrupadas(contasAtrasadas);
+    }
   }, [contas]);
 
   // Cálculo inteligente de notificações (contas atrasadas, vencendo hoje, parcelas acabando)
@@ -508,8 +677,22 @@ export default function App() {
       }
     });
 
+    // 5. Mensagens de Transmissão ADM para todos os aparelhos
+    transmissoes.forEach((t) => {
+      const isRecent = Date.now() - t.timestamp < 1000 * 60 * 60 * 72; // 3 dias
+      if (isRecent) {
+        alerts.push({
+          id: `transmissao_${t.id}`,
+          tipo: 'transmissao_adm',
+          titulo: t.titulo,
+          mensagem: t.mensagem,
+          urgencia: t.urgencia,
+        });
+      }
+    });
+
     return alerts;
-  }, [contas]);
+  }, [contas, transmissoes]);
 
   // Filtra as notificações ativas que ainda NÃO foram marcadas como vistas pelo usuário
   const unreadNotifications = useMemo(() => {
@@ -570,6 +753,206 @@ export default function App() {
     },
     []
   );
+
+  // Operações do Módulo de Acordos & Dívidas (dados_limpanome)
+  const handleSaveDivida = (d: DividaLimpaNome) => {
+    setDividas((prev) => {
+      const idx = prev.findIndex((x) => x.id === d.id);
+      let updated: DividaLimpaNome[];
+      if (idx >= 0) {
+        updated = [...prev];
+        updated[idx] = d;
+      } else {
+        updated = [d, ...prev];
+      }
+      try {
+        localStorage.setItem('sutello_dividas', JSON.stringify(updated));
+      } catch {}
+      const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+      if (uid) saveLimpaNomeDividas(uid, updated);
+      return updated;
+    });
+  };
+
+  const handleDeleteDivida = (id: string) => {
+    setDividas((prev) => {
+      const updated = prev.filter((x) => x.id !== id);
+      try {
+        localStorage.setItem('sutello_dividas', JSON.stringify(updated));
+      } catch {}
+      const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+      if (uid) saveLimpaNomeDividas(uid, updated);
+      return updated;
+    });
+  };
+
+  const handlePayDivida = (id: string) => {
+    setDividas((prev) => {
+      const d = prev.find((x) => x.id === id);
+      if (!d) return prev;
+
+      // 1. Marca a atual como paga
+      const updated = prev.map((x) => (x.id === id ? { ...x, paga: true } : x));
+
+      // 2. Se for parcelado e houver próximas parcelas, gera a próxima parcela no mês seguinte (exatamente como app.js)
+      if (d.totalParcelas > 0 && d.parcelaAtual < d.totalParcelas) {
+        let venc = String(d.vencimento || '').trim();
+        if (!venc) venc = new Date().toISOString().split('T')[0];
+        if (venc.includes('/')) {
+          const p = venc.split('/');
+          if (p.length === 3) venc = `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+        }
+        const [ano, mes, dia] = venc.split('-').map(Number);
+        const dt = new Date(ano, (mes - 1) + 1, dia || 1);
+        const yyyy = dt.getFullYear();
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getDate()).padStart(2, '0');
+        const novoVenc = `${yyyy}-${mm}-${dd}`;
+
+        const proxima: DividaLimpaNome = {
+          ...d,
+          id: Date.now().toString(),
+          paga: false,
+          parcelaAtual: (d.parcelaAtual || 1) + 1,
+          vencimento: novoVenc,
+        };
+        updated.push(proxima);
+      }
+
+      try {
+        localStorage.setItem('sutello_dividas', JSON.stringify(updated));
+      } catch {}
+      const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+      if (uid) saveLimpaNomeDividas(uid, updated);
+      return updated;
+    });
+  };
+
+  const handleUndoDivida = (id: string) => {
+    setDividas((prev) => {
+      const d = prev.find((x) => x.id === id);
+      if (!d) return prev;
+
+      // Remove a próxima parcela se foi gerada automaticamente e ainda não foi paga
+      const proximaNum = (d.parcelaAtual || 1) + 1;
+      const updated = prev
+        .filter((x) => !(x.nome === d.nome && x.parcelaAtual === proximaNum && !x.paga))
+        .map((x) => (x.id === id ? { ...x, paga: false } : x));
+
+      try {
+        localStorage.setItem('sutello_dividas', JSON.stringify(updated));
+      } catch {}
+      const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+      if (uid) saveLimpaNomeDividas(uid, updated);
+      return updated;
+    });
+  };
+
+  // ==========================================
+  // OPERAÇÕES DO MÓDULO CAIXINHAS & METAS
+  // ==========================================
+  const handleSaveCaixinha = (caixinha: Caixinha) => {
+    setCaixinhas((prev) => {
+      const exists = prev.some((c) => c.id === caixinha.id);
+      const updated = exists ? prev.map((c) => (c.id === caixinha.id ? caixinha : c)) : [caixinha, ...prev];
+      try {
+        localStorage.setItem('sutello_caixinhas', JSON.stringify(updated));
+      } catch {}
+      const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+      if (uid) saveCaixinhasToCloud(uid, updated);
+      return updated;
+    });
+  };
+
+  const handleDeleteCaixinha = (id: string) => {
+    setCaixinhas((prev) => {
+      const updated = prev.filter((c) => c.id !== id);
+      try {
+        localStorage.setItem('sutello_caixinhas', JSON.stringify(updated));
+      } catch {}
+      const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+      if (uid) saveCaixinhasToCloud(uid, updated);
+      return updated;
+    });
+  };
+
+  const handleDepositCaixinha = (id: string, valor: number, descricao?: string) => {
+    setCaixinhas((prev) => {
+      const updated = prev.map((c) => {
+        if (c.id !== id) return c;
+        const novoSaldo = (c.saldo || 0) + valor;
+        const novaTx: TransacaoCaixinha = {
+          id: 'tx_' + Date.now(),
+          tipo: 'deposito',
+          valor,
+          data: new Date().toISOString(),
+          descricao: descricao || 'Depósito na caixinha',
+        };
+        return {
+          ...c,
+          saldo: novoSaldo,
+          historico: [novaTx, ...(c.historico || [])],
+        };
+      });
+      try {
+        localStorage.setItem('sutello_caixinhas', JSON.stringify(updated));
+      } catch {}
+      const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+      if (uid) saveCaixinhasToCloud(uid, updated);
+      return updated;
+    });
+  };
+
+  const handleWithdrawCaixinha = (id: string, valor: number, descricao?: string) => {
+    setCaixinhas((prev) => {
+      const updated = prev.map((c) => {
+        if (c.id !== id) return c;
+        const novoSaldo = Math.max(0, (c.saldo || 0) - valor);
+        const novaTx: TransacaoCaixinha = {
+          id: 'tx_' + Date.now(),
+          tipo: 'resgate',
+          valor,
+          data: new Date().toISOString(),
+          descricao: descricao || 'Resgate da caixinha',
+        };
+        return {
+          ...c,
+          saldo: novoSaldo,
+          historico: [novaTx, ...(c.historico || [])],
+        };
+      });
+      try {
+        localStorage.setItem('sutello_caixinhas', JSON.stringify(updated));
+      } catch {}
+      const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+      if (uid) saveCaixinhasToCloud(uid, updated);
+      return updated;
+    });
+  };
+
+  // ==========================================
+  // OPERAÇÕES DO MÓDULO SAÚDE & BEM-ESTAR
+  // ==========================================
+  const handleSaveSaude = (novosDados: DadosSaude) => {
+    setDadosSaude(novosDados);
+    try {
+      localStorage.setItem('sutello_saude', JSON.stringify(novosDados));
+    } catch {}
+    const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+    if (uid) saveSaudeToCloud(uid, novosDados);
+  };
+
+  // ==========================================
+  // OPERAÇÕES DO MÓDULO NOTAS & LEMBRETES (AGENDA)
+  // ==========================================
+  const handleSaveAgenda = (novosDados: DadosAgenda) => {
+    setDadosAgenda(novosDados);
+    try {
+      localStorage.setItem('sutello_agenda', JSON.stringify(novosDados));
+    } catch {}
+    const uid = auth?.currentUser?.uid || localStorage.getItem('sutello_last_uid') || '';
+    if (uid) saveAgendaToCloud(uid, novosDados);
+  };
 
   // 3. Desafio Matemático de Segurança para Ações Críticas
   const requireSecurity = (actionName: string, actionCallback: () => void) => {
@@ -999,7 +1382,10 @@ export default function App() {
     return (
       <>
         {/* Banner de Notificação Flutuante no Topo da Tela (Heads-Up) */}
-        <HeadsUpNotification onSelectConta={handleSelectConta} />
+        <HeadsUpNotification
+          onSelectConta={handleSelectConta}
+          onOpenNotifications={() => setIsUnlocked(true)}
+        />
         <LockScreen
           onUnlock={(targetContaId) => {
             setIsUnlocked(true);
@@ -1020,7 +1406,10 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#08080f] text-neutral-100 flex flex-col font-sans pb-24">
       {/* Banner de Notificação Flutuante no Topo da Tela (Heads-Up) */}
-      <HeadsUpNotification onSelectConta={handleSelectConta} />
+      <HeadsUpNotification
+        onSelectConta={handleSelectConta}
+        onOpenNotifications={() => setIsNotificationsOpen(true)}
+      />
 
       {/* Header Superior */}
       <Header
@@ -1285,7 +1674,77 @@ export default function App() {
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}
         onLogout={handleLogout}
+        onOpenAdmin={() => {
+          setIsSettingsOpen(false);
+          setIsAdminOpen(true);
+        }}
+        onOpenAcordos={() => {
+          setIsSettingsOpen(false);
+          setIsAcordosOpen(true);
+        }}
+        qtdAcordosPendentes={dividas.filter((d) => !d.paga).length}
+        onOpenCaixinhas={() => {
+          setIsSettingsOpen(false);
+          setIsCaixinhasOpen(true);
+        }}
+        qtdCaixinhas={caixinhas.length}
+        onOpenSaude={() => {
+          setIsSettingsOpen(false);
+          setIsSaudeOpen(true);
+        }}
+        onOpenAgenda={() => {
+          setIsSettingsOpen(false);
+          setIsAgendaOpen(true);
+        }}
+        qtdAgendaPendentes={dadosAgenda.itens.filter((i) => !i.concluido).length}
         onClose={() => setIsSettingsOpen(false)}
+      />
+
+      {/* Modal de Acordos e Dívidas (Limpa Nome - dados_limpanome) */}
+      <AcordosModal
+        isOpen={isAcordosOpen}
+        onClose={() => setIsAcordosOpen(false)}
+        dividas={dividas}
+        onSaveDivida={handleSaveDivida}
+        onDeleteDivida={handleDeleteDivida}
+        onPayDivida={handlePayDivida}
+        onUndoDivida={handleUndoDivida}
+      />
+
+      {/* Modal de Caixinhas & Metas (dados_caixinhas) */}
+      <CaixinhasModal
+        isOpen={isCaixinhasOpen}
+        onClose={() => setIsCaixinhasOpen(false)}
+        caixinhas={caixinhas}
+        onSaveCaixinha={handleSaveCaixinha}
+        onDeleteCaixinha={handleDeleteCaixinha}
+        onDeposit={handleDepositCaixinha}
+        onWithdraw={handleWithdrawCaixinha}
+      />
+
+      {/* Modal de Saúde & Bem-Estar (dados_saude) */}
+      <SaudeModal
+        isOpen={isSaudeOpen}
+        onClose={() => setIsSaudeOpen(false)}
+        dadosSaude={dadosSaude}
+        onSaveSaude={handleSaveSaude}
+      />
+
+      {/* Modal de Notas & Lembretes / Agenda (dados_agenda) */}
+      <NotasLembretesModal
+        isOpen={isAgendaOpen}
+        onClose={() => setIsAgendaOpen(false)}
+        dadosAgenda={dadosAgenda}
+        onSaveAgenda={handleSaveAgenda}
+      />
+
+      {/* Painel Administrativo Secreto */}
+      <AdminBroadcastModal
+        isOpen={isAdminOpen}
+        onClose={() => setIsAdminOpen(false)}
+        uid={firebaseUser?.uid || localStorage.getItem('sutello_last_uid') || ''}
+        transmissoes={transmissoes}
+        userEmail={firebaseUser?.email}
       />
 
       {/* Modal de Notificações Inteligentes */}
