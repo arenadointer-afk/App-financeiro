@@ -1,4 +1,4 @@
-import { Conta } from '../types';
+import { Conta, ItemAgenda } from '../types';
 import { formatCurrency, isoParaBR } from './utils';
 
 export interface NotificationPreferences {
@@ -494,4 +494,91 @@ export async function notifyBroadcastAdmin(
     markAsNotified(key);
   }
   return sucesso;
+}
+
+/**
+ * Dispara notificação no celular para compromissos e lembretes da Agenda:
+ * - 1 dia antes do compromisso (amanhã)
+ * - No próprio dia do compromisso (hoje)
+ * Sempre exibe de quem é o compromisso (Vitórya ou Leonardo), título, data e horário.
+ */
+export async function notifyAgendaCompromissos(itens: ItemAgenda[]): Promise<void> {
+  if (!itens || itens.length === 0) return;
+
+  const hoje = new Date();
+  const yyyy = hoje.getFullYear();
+  const mm = String(hoje.getMonth() + 1).padStart(2, '0');
+  const dd = String(hoje.getDate()).padStart(2, '0');
+  const hojeStr = `${yyyy}-${mm}-${dd}`;
+  const hojeDate = new Date(hojeStr + 'T00:00:00');
+
+  for (const item of itens) {
+    if (item.concluido || !item.data) continue;
+
+    let dataStr = String(item.data).trim();
+    if (dataStr.includes('/')) {
+      const p = dataStr.split('/');
+      if (p.length === 3) dataStr = `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+    } else if (dataStr.includes('T')) {
+      dataStr = dataStr.split('T')[0];
+    }
+
+    const compDate = new Date(dataStr + 'T00:00:00');
+    if (isNaN(compDate.getTime())) continue;
+
+    const diffMs = compDate.getTime() - hojeDate.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+    const nomePessoa = item.pessoa || 'Leonardo';
+    const horaInfo = item.hora ? ` às ${item.hora}` : '';
+    const dataFormatada = isoParaBR(dataStr);
+
+    // 1. No próprio dia do compromisso (diffDays === 0)
+    if (diffDays === 0) {
+      const keyHoje = `notif_agenda_hoje_${item.id}_${hojeStr}`;
+      if (!hasBeenNotified(keyHoje)) {
+        const prefs = getNotificationPreferences();
+        if (!prefs.enabled && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          saveNotificationPreferences({ enabled: true });
+        }
+
+        const titulo = `📅 HOJE (${nomePessoa}): ${item.titulo}`;
+        const corpo = `Compromisso de ${nomePessoa} hoje (${dataFormatada})${horaInfo}.${
+          item.descricao ? ` Obs: ${item.descricao}` : ''
+        }`;
+
+        const ok = await sendDeviceNotification(titulo, {
+          body: corpo,
+          tag: `agenda_hoje_${item.id}`,
+          requireInteraction: true,
+          data: { tipo: 'hoje', agendaId: item.id, pessoa: nomePessoa },
+        });
+        if (ok) markAsNotified(keyHoje);
+      }
+    }
+
+    // 2. Um dia antes do compromisso (diffDays === 1)
+    if (diffDays === 1) {
+      const keyVespera = `notif_agenda_vespera_${item.id}_${hojeStr}`;
+      if (!hasBeenNotified(keyVespera)) {
+        const prefs = getNotificationPreferences();
+        if (!prefs.enabled && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          saveNotificationPreferences({ enabled: true });
+        }
+
+        const titulo = `🔔 AMANHÃ (${nomePessoa}): ${item.titulo}`;
+        const corpo = `Lembrete de véspera: Compromisso de ${nomePessoa} amanhã (${dataFormatada})${horaInfo}.${
+          item.descricao ? ` Obs: ${item.descricao}` : ''
+        }`;
+
+        const ok = await sendDeviceNotification(titulo, {
+          body: corpo,
+          tag: `agenda_vespera_${item.id}`,
+          requireInteraction: false,
+          data: { tipo: 'breve', agendaId: item.id, pessoa: nomePessoa },
+        });
+        if (ok) markAsNotified(keyVespera);
+      }
+    }
+  }
 }
