@@ -263,7 +263,7 @@ export async function sendDeviceNotification(
 }
 
 /**
- * Dispara notificação no celular quando uma CONTA VENCEU (Atrasada)
+ * Dispara notificação no celular quando uma CONTA VENCEU (Atrasada individual)
  * Formato super otimizado que exibe tudo no título sem precisar expandir
  */
 export async function notifyContaVencida(conta: Conta, diasAtraso: number): Promise<boolean> {
@@ -287,7 +287,48 @@ export async function notifyContaVencida(conta: Conta, diasAtraso: number): Prom
 }
 
 /**
- * Dispara notificação no celular quando uma CONTA VENCE HOJE
+ * Dispara notificação agrupada para contas vencidas (atrasadas):
+ * Se houver apenas 1 conta: exibe o detalhe individual dela.
+ * Se houver mais de 1 conta: agrupa com clareza ("Aluguel e mais 2 contas em atraso")
+ * evitando encher o celular de notificações repetidas ao mesmo tempo.
+ */
+export async function notifyContasVencidasAgrupadas(
+  contasComAtraso: { conta: Conta; diasAtraso: number }[]
+): Promise<boolean> {
+  if (!contasComAtraso || contasComAtraso.length === 0) return false;
+  const prefs = getNotificationPreferences();
+  if (!prefs.contasVencidas || !prefs.enabled) return false;
+
+  if (contasComAtraso.length === 1) {
+    return notifyContaVencida(contasComAtraso[0].conta, contasComAtraso[0].diasAtraso);
+  }
+
+  const hojeStr = new Date().toISOString().split('T')[0];
+  const idsSorted = contasComAtraso.map((item) => item.conta.id).sort().join('_');
+  const key = `notif_grupo_vencidas_${hojeStr}_qtd${contasComAtraso.length}_${idsSorted}`;
+  if (hasBeenNotified(key)) return false;
+
+  const primeira = contasComAtraso[0].conta;
+  const outrasQtd = contasComAtraso.length - 1;
+  const totalValor = contasComAtraso.reduce((sum, item) => sum + (Number(item.conta.valor) || 0), 0);
+
+  const titulo = `⚠️ ${contasComAtraso.length} CONTAS ATRASADAS • R$ ${formatCurrency(totalValor)}`;
+  const corpo = `${primeira.nome} e mais ${outrasQtd} ${outrasQtd === 1 ? 'conta estão vencidas' : 'contas estão vencidas'}. Toque para ver e quitar!`;
+
+  const sucesso = await sendDeviceNotification(titulo, {
+    body: corpo,
+    tag: `vencidas_agrupadas_${hojeStr}`,
+    data: { tipo: 'atrasada', qtd: contasComAtraso.length },
+  });
+
+  if (sucesso) {
+    markAsNotified(key);
+  }
+  return sucesso;
+}
+
+/**
+ * Dispara notificação no celular quando uma CONTA VENCE HOJE (individual)
  */
 export async function notifyContaVenceHoje(conta: Conta): Promise<boolean> {
   const prefs = getNotificationPreferences();
@@ -300,6 +341,45 @@ export async function notifyContaVenceHoje(conta: Conta): Promise<boolean> {
     body: `Vencimento hoje (${isoParaBR(conta.vencimento)}) • Toque para ver ou marcar como paga`,
     tag: `hoje_${conta.id}`,
     data: { contaId: conta.id, tipo: 'hoje' },
+  });
+
+  if (sucesso) {
+    markAsNotified(key);
+  }
+  return sucesso;
+}
+
+/**
+ * Dispara notificação agrupada para contas que vencem hoje:
+ * Se houver apenas 1 conta: exibe o detalhe dela.
+ * Se houver mais de 1 conta: agrupa de forma inteligente (ex: "Luz e mais 2 contas vencem hoje")
+ * para não sobrecarregar com várias notificações sonoras simultâneas.
+ */
+export async function notifyContasVenceHojeAgrupadas(contas: Conta[]): Promise<boolean> {
+  if (!contas || contas.length === 0) return false;
+  const prefs = getNotificationPreferences();
+  if (!prefs.contasVenceHoje || !prefs.enabled) return false;
+
+  if (contas.length === 1) {
+    return notifyContaVenceHoje(contas[0]);
+  }
+
+  const hojeStr = new Date().toISOString().split('T')[0];
+  const idsSorted = contas.map((c) => c.id).sort().join('_');
+  const key = `notif_grupo_hoje_${hojeStr}_qtd${contas.length}_${idsSorted}`;
+  if (hasBeenNotified(key)) return false;
+
+  const primeira = contas[0];
+  const outrasQtd = contas.length - 1;
+  const totalValor = contas.reduce((sum, c) => sum + (Number(c.valor) || 0), 0);
+
+  const titulo = `⏰ ${contas.length} CONTAS VENCEM HOJE • R$ ${formatCurrency(totalValor)}`;
+  const corpo = `${primeira.nome} e mais ${outrasQtd} ${outrasQtd === 1 ? 'conta vencem' : 'contas vencem'} hoje. Toque para ver!`;
+
+  const sucesso = await sendDeviceNotification(titulo, {
+    body: corpo,
+    tag: `hoje_agrupado_${hojeStr}`,
+    data: { tipo: 'hoje', qtd: contas.length },
   });
 
   if (sucesso) {
@@ -388,4 +468,30 @@ export async function triggerTestNotification(): Promise<boolean> {
     tag: `teste_${Date.now()}`,
     data: { tipo: 'teste' },
   });
+}
+
+/**
+ * Dispara notificação no celular enviada via Transmissão ADM para todos os aparelhos
+ */
+export async function notifyBroadcastAdmin(
+  titulo: string,
+  mensagem: string,
+  urgencia: 'alta' | 'media' | 'baixa' = 'alta',
+  broadcastId?: string
+): Promise<boolean> {
+  const key = `broadcast_${broadcastId || titulo}_${mensagem.substring(0, 10)}`;
+  if (hasBeenNotified(key)) return false;
+
+  const prefix = urgencia === 'alta' ? '🚨 ' : urgencia === 'media' ? '📢 ' : '💬 ';
+  const sucesso = await sendDeviceNotification(`${prefix}${titulo}`, {
+    body: mensagem,
+    tag: `adm_broadcast_${broadcastId || Date.now()}`,
+    requireInteraction: urgencia === 'alta',
+    data: { tipo: 'transmissao_adm', broadcastId },
+  });
+
+  if (sucesso) {
+    markAsNotified(key);
+  }
+  return sucesso;
 }
