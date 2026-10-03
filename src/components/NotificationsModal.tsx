@@ -17,7 +17,8 @@ import {
   Settings2,
   PlusCircle,
   PartyPopper,
-  Info
+  Info,
+  ShieldAlert
 } from 'lucide-react';
 import { NotificacaoAlerta } from '../types';
 import {
@@ -323,8 +324,11 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
               const isParcelaQuitada = item.tipo === 'parcela_quitada';
               const isNovaConta = item.tipo === 'nova_conta';
               const isPaga = item.tipo === 'conta_paga';
+              const isTransmissaoAdm = item.tipo === 'transmissao_adm';
 
-              const cardBorder = isAtrasada
+              const cardBorder = isTransmissaoAdm
+                ? 'border-indigo-500/50 bg-indigo-950/30 hover:border-indigo-500/70 shadow-lg shadow-indigo-950/20'
+                : isAtrasada
                 ? 'border-red-500/30 bg-red-950/20 hover:border-red-500/50'
                 : isHoje
                 ? 'border-amber-500/30 bg-amber-950/20 hover:border-amber-500/50'
@@ -336,7 +340,11 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
                 ? 'border-cyan-500/30 bg-cyan-950/20 hover:border-cyan-500/50'
                 : 'border-blue-500/30 bg-blue-950/20 hover:border-blue-500/50';
 
-              const iconBadge = isAtrasada ? (
+              const iconBadge = isTransmissaoAdm ? (
+                <div className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-500/30">
+                  <ShieldAlert className="w-4 h-4" />
+                </div>
+              ) : isAtrasada ? (
                 <div className="w-8 h-8 rounded-lg bg-red-500/20 text-red-400 flex items-center justify-center shrink-0">
                   <AlertTriangle className="w-4 h-4" />
                 </div>

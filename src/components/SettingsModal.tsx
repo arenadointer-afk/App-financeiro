@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Settings, X, Camera, Shield, Download, Upload, LogOut, Key, Check, AlertCircle, Archive, Smartphone, Bell, Cloud, Mail, LogIn, UserPlus } from 'lucide-react';
+import { Settings, X, Camera, Shield, Download, Upload, LogOut, Key, Check, AlertCircle, Archive, Smartphone, Bell, Cloud, Mail, LogIn, UserPlus, ShieldAlert, Handshake, Package, Heart, Calendar, StickyNote, PiggyBank } from 'lucide-react';
 import { UserProfile } from '../types';
 import { redimensionarImagem } from '../lib/utils';
 import { updatePassword, signOut, auth, loginWithEmailPassword, registerWithEmailPassword } from '../lib/firebase';
@@ -21,6 +21,14 @@ interface SettingsModalProps {
   onImportBackup: (file: File) => void;
   onLogout: () => void;
   onClose: () => void;
+  onOpenAdmin?: () => void;
+  onOpenAcordos?: () => void;
+  qtdAcordosPendentes?: number;
+  onOpenCaixinhas?: () => void;
+  qtdCaixinhas?: number;
+  onOpenSaude?: () => void;
+  onOpenAgenda?: () => void;
+  qtdAgendaPendentes?: number;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -32,6 +40,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onImportBackup,
   onLogout,
   onClose,
+  onOpenAdmin,
+  onOpenAcordos,
+  qtdAcordosPendentes = 0,
+  onOpenCaixinhas,
+  qtdCaixinhas = 0,
+  onOpenSaude,
+  onOpenAgenda,
+  qtdAgendaPendentes = 0,
 }) => {
   const [nome, setNome] = useState(profile.nome || '');
   const [fotoPreview, setFotoPreview] = useState(profile.fotoPerfil || '');
@@ -446,6 +462,123 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {saving ? 'Salvando...' : 'Salvar Alterações'}
           </button>
 
+          {/* Seção Acordos & Dívidas */}
+          {onOpenAcordos && (
+            <div className="pt-4 border-t border-white/10 space-y-2 touch-manipulation select-none">
+              <span className="font-semibold text-neutral-400 uppercase tracking-wider block text-xs">
+                Acordos e Negociações
+              </span>
+              {/* Botão Acordos & Limpa Nome */}
+              <button
+                type="button"
+                onClick={onOpenAcordos}
+                className="w-full py-3 px-3.5 bg-gradient-to-r from-purple-950/40 via-neutral-900/60 to-purple-950/40 hover:from-purple-900/50 hover:to-neutral-900/80 active:scale-[0.98] text-white rounded-xl border border-purple-500/30 flex items-center justify-between transition-all shadow-md group touch-manipulation"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-purple-600/25 border border-purple-500/30 flex items-center justify-center text-purple-300 group-hover:scale-105 transition-transform">
+                    <Handshake className="w-4 h-4" />
+                  </div>
+                  <div className="text-left">
+                    <span className="font-semibold text-xs text-white block">Acordos & Limpa Nome</span>
+                    <span className="text-[10px] text-neutral-400 block">Gestão de credores, dívidas e quitações</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {qtdAcordosPendentes > 0 ? (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
+                      {qtdAcordosPendentes} pendentes
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-purple-400 font-medium">Acessar →</span>
+                  )}
+                </div>
+              </button>
+
+              {/* Botão Caixinhas & Metas (Abaixo do Acordo) */}
+              {onOpenCaixinhas && (
+                <button
+                  type="button"
+                  onClick={onOpenCaixinhas}
+                  className="w-full py-3 px-3.5 bg-gradient-to-r from-emerald-950/30 via-neutral-900/60 to-purple-950/30 hover:from-emerald-900/40 hover:to-neutral-900/80 active:scale-[0.98] text-white rounded-xl border border-emerald-500/30 flex items-center justify-between transition-all shadow-md group touch-manipulation"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-600/25 border border-emerald-500/30 flex items-center justify-center text-emerald-300 group-hover:scale-105 transition-transform">
+                      <Package className="w-4 h-4" />
+                    </div>
+                    <div className="text-left">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-xs text-white block">Caixinhas & Metas</span>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
+                          100% CDI
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-neutral-400 block">Cofrinhos, metas e poupança inteligente</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {qtdCaixinhas > 0 ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
+                        {qtdCaixinhas} {qtdCaixinhas === 1 ? 'caixinha' : 'caixinhas'}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-emerald-400 font-medium">Abrir →</span>
+                    )}
+                  </div>
+                </button>
+              )}
+
+              {/* Botão Saúde */}
+              {onOpenSaude && (
+                <button
+                  type="button"
+                  onClick={onOpenSaude}
+                  className="w-full py-3 px-3.5 bg-gradient-to-r from-rose-950/30 via-neutral-900/60 to-purple-950/30 hover:from-rose-900/40 hover:to-neutral-900/80 active:scale-[0.98] text-white rounded-xl border border-rose-500/30 flex items-center justify-between transition-all shadow-md group touch-manipulation"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-rose-600/25 border border-rose-500/30 flex items-center justify-center text-rose-300 group-hover:scale-105 transition-transform">
+                      <Heart className="w-4 h-4" />
+                    </div>
+                    <div className="text-left">
+                      <span className="font-semibold text-xs text-white block">Saúde & Bem-Estar</span>
+                      <span className="text-[10px] text-neutral-400 block">Remédios diários, consultas, exames e cartão</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-rose-400 font-medium">Acessar →</span>
+                  </div>
+                </button>
+              )}
+
+              {/* Botão Notas e Lembretes (Agenda) */}
+              {onOpenAgenda && (
+                <button
+                  type="button"
+                  onClick={onOpenAgenda}
+                  className="w-full py-3 px-3.5 bg-gradient-to-r from-amber-950/30 via-neutral-900/60 to-purple-950/30 hover:from-amber-900/40 hover:to-neutral-900/80 active:scale-[0.98] text-white rounded-xl border border-amber-500/30 flex items-center justify-between transition-all shadow-md group touch-manipulation"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-amber-600/25 border border-amber-500/30 flex items-center justify-center text-amber-300 group-hover:scale-105 transition-transform">
+                      <Calendar className="w-4 h-4" />
+                    </div>
+                    <div className="text-left">
+                      <span className="font-semibold text-xs text-white block">Notas e Lembretes</span>
+                      <span className="text-[10px] text-neutral-400 block">Agenda pessoal, compromissos e anotações rápidas</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {qtdAgendaPendentes > 0 ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold">
+                        {qtdAgendaPendentes} pendentes
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-amber-400 font-medium">Abrir →</span>
+                    )}
+                  </div>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Seção de Backup */}
           <div className="pt-4 border-t border-white/10 space-y-2 touch-manipulation select-none">
             <span className="font-semibold text-neutral-400 uppercase tracking-wider block mb-1">
@@ -511,6 +644,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               Sair da Conta / Bloquear
             </button>
           </div>
+
+          {/* Botão ADM Discreto e Escondido */}
+          {onOpenAdmin && (
+            <div className="pt-3 pb-1 flex items-center justify-center touch-manipulation select-none">
+              <button
+                type="button"
+                onClick={onOpenAdmin}
+                className="py-1 px-3 text-[11px] text-neutral-600 hover:text-neutral-400 active:text-purple-300 transition-colors rounded-lg flex items-center gap-1.5 touch-manipulation opacity-40 hover:opacity-100"
+                title="Acesso ADM"
+              >
+                <ShieldAlert className="w-3 h-3 text-neutral-500" />
+                <span className="font-mono text-[10px] tracking-wider">ADM</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

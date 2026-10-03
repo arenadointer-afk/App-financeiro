@@ -23,9 +23,10 @@ export interface HeadsUpData {
 
 interface HeadsUpNotificationProps {
   onSelectConta?: (contaId: string | number) => void;
+  onOpenNotifications?: () => void;
 }
 
-export const HeadsUpNotification: React.FC<HeadsUpNotificationProps> = ({ onSelectConta }) => {
+export const HeadsUpNotification: React.FC<HeadsUpNotificationProps> = ({ onSelectConta, onOpenNotifications }) => {
   const [currentNotice, setCurrentNotice] = useState<HeadsUpData | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -66,6 +67,8 @@ export const HeadsUpNotification: React.FC<HeadsUpNotificationProps> = ({ onSele
   const handleBannerClick = () => {
     if (currentNotice.contaId && onSelectConta) {
       onSelectConta(currentNotice.contaId);
+    } else if (onOpenNotifications) {
+      onOpenNotifications();
     }
     handleDismiss();
   };
