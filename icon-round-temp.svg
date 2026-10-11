@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGradR" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b0b16"/>
+      <stop offset="50%" stop-color="#07070e"/>
+      <stop offset="100%" stop-color="#130924"/>
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="256" r="256" fill="url(#bgGradR)"/>
+  <circle cx="256" cy="256" r="246" fill="none" stroke="#9333ea" stroke-opacity="0.3" stroke-width="5"/>
+  <g text-anchor="middle">
+    <text x="256" y="256" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="900" font-size="108" fill="#FFFFFF" letter-spacing="-2">
+      <tspan fill="#a855f7">$</tspan>utello
+    </text>
+    <text x="256" y="322" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="800" font-size="27" fill="#c084fc" letter-spacing="9">
+      FINANCEIRO
+    </text>
+  </g>
+</svg>

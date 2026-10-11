@@ -1,0 +1,6 @@
+{
+  "name": "Sutello Financeiro",
+  "description": "Gestão financeira inteligente, controle de contas a pagar, parcelamentos, fluxo mensal e sincronização em tempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

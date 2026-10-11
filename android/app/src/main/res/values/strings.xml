@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sutello Financeiro</string>
+    <string name="title_activity_main">Sutello Financeiro</string>
+    <string name="package_name">com.sutello.financeiro</string>
+    <string name="custom_url_scheme">com.sutello.financeiro</string>
+</resources>

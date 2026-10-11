@@ -1,0 +1,12 @@
+{
+  "version": "3.8.3",
+  "buildId": "20261011-ota-v383",
+  "title": "Versão Oficial v3.8.3",
+  "notes": "Central de Backup (.JSON), Restauração, Downloads (.ZIP) e Botão Atualizar App movidos para o Painel ADM (abaixo do disparo de mensagens).",
+  "liveUrl": "https://app-financeiro-beta-blue.vercel.app",
+  "updatedAt": 1791695000000
+}
+
+
+
+

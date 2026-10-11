@@ -1,0 +1,215 @@
+@import "tailwindcss";
+
+@layer base {
+  *, *::before, *::after {
+    /* Elimina o delay padrão de 300ms de duplo-toque nos navegadores mobile */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    overscroll-behavior-y: none;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  button, a, input, select, textarea {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: 'Outfit', sans-serif;
+  }
+
+  .font-bio {
+    font-family: 'Playfair Display', 'Caveat', Georgia, serif;
+    font-style: italic;
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar,
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Otimização de performance e fluidez nos cliques */
+button, [role="button"] {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Custom delicate dark scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.privacy-blur {
+  filter: blur(8px);
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Proteção Anti-Print / Anti-Gravação de Tela estilo Banco (Tela Preta Instantânea ao tentar printar) */
+body.screenshot-shield-active #root > div > *:not(.anti-print-toast) {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+body.screenshot-shield-active {
+  background-color: #000000 !important;
+}
+
+@media print {
+  html, body, #root {
+    display: none !important;
+    visibility: hidden !important;
+  }
+}
+
+/* =========================================================
+   MODO CLARO (LIGHT MODE) INDIVIDUAL POR APARELHO
+   O padrão é sempre Escuro. Quando html.light-mode está ativo:
+   ========================================================= */
+html.light-mode,
+html.light-mode body {
+  background-color: #f4f5f9 !important;
+  color: #0f172a !important;
+}
+
+/* Fundos principais e barras */
+html.light-mode .bg-\[\#08080f\],
+html.light-mode .bg-\[\#07070e\] {
+  background-color: #f4f5f9 !important;
+}
+
+html.light-mode .bg-\[\#0c0c16\]\/90,
+html.light-mode .bg-\[\#0c0c16\]\/95,
+html.light-mode .bg-\[\#0c0c16\] {
+  background-color: rgba(255, 255, 255, 0.94) !important;
+}
+
+/* Cards de meses, contas e modais */
+html.light-mode .bg-\[\#0f0f1c\],
+html.light-mode .bg-\[\#121222\],
+html.light-mode .bg-\[\#121222\]\/50,
+html.light-mode .bg-\[\#13131f\],
+html.light-mode .bg-\[\#141422\],
+html.light-mode .bg-\[\#10101c\]\/60,
+html.light-mode .bg-\[\#161626\],
+html.light-mode .bg-\[\#181828\],
+html.light-mode .bg-\[\#1a1a2e\] {
+  background-color: #ffffff !important;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05) !important;
+}
+
+html.light-mode .bg-\[\#151526\] {
+  background-color: #f8fafc !important;
+}
+
+html.light-mode .bg-\[\#221c10\] {
+  background-color: #fffbeb !important;
+}
+
+/* Superfícies translúcidas brancas viram cinza-azulado suave no modo claro */
+html.light-mode .bg-white\/5,
+html.light-mode .bg-white\/\[0\.03\],
+html.light-mode .bg-white\/\[0\.04\] {
+  background-color: #f1f5f9 !important;
+}
+
+html.light-mode .bg-white\/10,
+html.light-mode .hover\:bg-white\/10:hover {
+  background-color: #e2e8f0 !important;
+}
+
+/* Bordas */
+html.light-mode .border-white\/5,
+html.light-mode .border-white\/10,
+html.light-mode .border-white\/15,
+html.light-mode .border-white\/20 {
+  border-color: #e2e8f0 !important;
+}
+
+html.light-mode .border-\[\#0c0c16\] {
+  border-color: #ffffff !important;
+}
+
+/* Tipografia escura e nítida no modo claro (preservando botões coloridos) */
+html.light-mode .text-neutral-100,
+html.light-mode .text-neutral-200,
+html.light-mode h1.text-white,
+html.light-mode h2.text-white,
+html.light-mode h3.text-white,
+html.light-mode h4.text-white,
+html.light-mode span.text-white:not(.bg-red-500):not(.bg-purple-600):not(.bg-emerald-600),
+html.light-mode input.text-white,
+html.light-mode select.text-white,
+html.light-mode textarea.text-white {
+  color: #0f172a !important;
+}
+
+html.light-mode .text-neutral-300 {
+  color: #334155 !important;
+}
+
+html.light-mode .text-neutral-400,
+html.light-mode .text-neutral-500 {
+  color: #64748b !important;
+}
+
+html.light-mode .text-purple-200,
+html.light-mode .text-purple-200\/90,
+html.light-mode .text-purple-300 {
+  color: #6d28d9 !important;
+}
+
+html.light-mode .text-emerald-400,
+html.light-mode .text-emerald-300 {
+  color: #059669 !important;
+}
+
+html.light-mode .text-amber-400,
+html.light-mode .text-amber-300,
+html.light-mode .text-amber-200 {
+  color: #d97706 !important;
+}
+
+html.light-mode .text-red-400,
+html.light-mode .text-red-300 {
+  color: #dc2626 !important;
+}
+
+/* Preserva texto branco em botões de ação sólidos */
+html.light-mode .bg-purple-600,
+html.light-mode .bg-emerald-600,
+html.light-mode .bg-red-500,
+html.light-mode .bg-red-600,
+html.light-mode .bg-blue-600 {
+  color: #ffffff !important;
+}
+html.light-mode .bg-purple-600 span,
+html.light-mode .bg-emerald-600 span,
+html.light-mode .bg-red-500 span {
+  color: #ffffff !important;
+}
+
